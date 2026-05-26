@@ -2,7 +2,7 @@ import { GameEngine } from '../core/GameEngine';
 import { SoundManager } from './SoundManager';
 import { Card, MapNode } from '../core/Types';
 import { getSlotColor } from '../physics/RoulettePhysics';
-import { CARD_DATABASE } from '../cards/CardDatabase';
+import { CARD_DATABASE, getRandomCardId } from '../cards/CardDatabase';
 import { WHEEL_TEMPLATES, BOARD_UPGRADES } from '../core/WheelUpgrades';
 
 export class GameUI {
@@ -22,8 +22,37 @@ export class GameUI {
   private isEnemyResolutionReport = false;
 
   // Shop state (cached shop offerings for current floor)
-  private shopCards: { cardId: string; name: string; cost: number; desc: string }[] = [];
+  private shopCards: { cardId: string; name: string; cost: number; desc: string; rarity: string; type: string }[] = [];
   private activeShopTab: 'cards' | 'upgrades' = 'cards';
+
+  // Codex filter state
+  private codexRarityFilter = 'all';
+  private codexTypeFilter = 'all';
+
+  // Wheel Customizer State
+  private isCustomizingWheel = false;
+  private customWheelData = {
+    id: 'custom',
+    name: 'Custom Destroyer',
+    description: 'A bespoke engine of risk and blood.',
+    numbers: [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26],
+    greenNumbers: [0],
+    colors: {} as Record<number, 'red' | 'black' | 'green'>,
+    payoutMultipliers: { red: 2.0, black: 2.0, green: 10.0, number: 12.0, odd: 2.0, even: 2.0 },
+    upgrades: [] as string[]
+  };
+
+  private initCustomColors() {
+    this.customWheelData.colors = {};
+    const reds = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
+    for (let i = 0; i <= 36; i++) {
+      if (this.customWheelData.greenNumbers.includes(i)) {
+        this.customWheelData.colors[i] = 'green';
+      } else {
+        this.customWheelData.colors[i] = reds.has(i) ? 'red' : 'black';
+      }
+    }
+  }
 
   // View state tracking
   private currentView = 4;
@@ -55,6 +84,20 @@ export class GameUI {
 
         <!-- HTML UI Overlay -->
         <div id="ui-overlay">
+          <!-- DEBUG STATS OVERLAY -->
+          <div id="debug-stats-overlay" class="hidden">
+            <div class="debug-stats-header">SYSTEM PERFORMANCE</div>
+            <div class="debug-stats-row">
+              <span>FPS:</span>
+              <span id="debug-fps-value" style="color: #64dd17; font-weight: bold;">--</span>
+            </div>
+            <canvas id="debug-fps-canvas" width="160" height="40" style="border: 1px solid #3d0e08; background: #0c0402; margin-top: 5px; display: block;"></canvas>
+            <div class="debug-stats-row" style="margin-top: 4px; font-size: 10px; color: #888;">
+              <span>FRAME TIME:</span>
+              <span id="debug-frame-time-value">-- ms</span>
+            </div>
+          </div>
+
           <!-- TOP HUD (Global Stats) -->
           <div id="hud-panel" class="hidden">
             <div class="hud-item hp-display">
@@ -179,16 +222,129 @@ export class GameUI {
 
           <!-- PANEL: MAIN MENU -->
           <div id="menu-panel" class="panel active">
-            <h1 class="game-title">ROULETTE<br><span class="subtitle">OF THE DAMNED</span></h1>
-            <p class="flavor-text">Gamble with your blood. Break the wheel. Escape the House.</p>
-            <button id="start-run-btn" class="btn primary-btn pulse-glow">ENTER THE TAVERN</button>
+            <h1 class="game-title">Roulette.OS</h1>
+            <div class="menu-btn-group">
+              <button id="start-run-btn" class="btn primary-btn pulse-glow">ENTER THE TAVERN</button>
+              <button id="codex-btn" class="codex-menu-btn">CARD CODEX</button>
+            </div>
+          </div>
+
+          <!-- PANEL: CARD CODEX -->
+          <div id="codex-panel" class="hidden">
+            <button id="codex-close-btn" class="btn codex-close-btn">✕ CLOSE</button>
+            <h2 class="codex-header">CARD CODEX</h2>
+            <p class="codex-subtext">All cards available in the game. Study them before your next run.</p>
+            
+            <div class="codex-filters">
+              <div class="filter-group">
+                <span class="filter-label">Rarity:</span>
+                <button class="filter-btn active" data-filter-type="rarity" data-value="all">All</button>
+                <button class="filter-btn" data-filter-type="rarity" data-value="common">Common</button>
+                <button class="filter-btn" data-filter-type="rarity" data-value="uncommon">Uncommon</button>
+                <button class="filter-btn" data-filter-type="rarity" data-value="rare">Rare</button>
+                <button class="filter-btn" data-filter-type="rarity" data-value="legendary">Legendary</button>
+              </div>
+              <div class="filter-group" style="margin-top: 8px;">
+                <span class="filter-label">Type:</span>
+                <button class="filter-btn active" data-filter-type="type" data-value="all">All</button>
+                <button class="filter-btn" data-filter-type="type" data-value="payout">Payout</button>
+                <button class="filter-btn" data-filter-type="type" data-value="physics">Physics</button>
+                <button class="filter-btn" data-filter-type="type" data-value="board">Board</button>
+                <button class="filter-btn" data-filter-type="type" data-value="utility">Utility</button>
+              </div>
+            </div>
+            
+            <div id="codex-grid" class="codex-grid"></div>
+          </div>
+
+          <!-- PANEL: DECK DRAFT -->
+          <div id="deck-draft-panel" class="panel hidden">
+            <h2 class="draft-header">DRAFT YOUR DECK</h2>
+            <p id="draft-progress-text" class="draft-progress">Pick 1 of 3 cards (0 / 10)</p>
+            <div id="draft-choices-container" class="draft-choices"></div>
+            <div id="draft-deck-preview" class="draft-deck-preview"></div>
           </div>
 
           <!-- PANEL: STARTING WHEEL SELECTION -->
           <div id="wheel-select-panel" class="panel hidden">
-            <h2 class="panel-header">SELECT YOUR WHEEL</h2>
-            <p class="flavor-text">Choose the wheel that will bind your blood to the table.</p>
-            <div id="wheel-choices-container" class="wheel-select-grid"></div>
+            <div id="wheel-select-main-view">
+              <h2 class="panel-header">SELECT YOUR WHEEL</h2>
+              <p class="flavor-text">Choose the wheel that will bind your blood to the table.</p>
+              <div id="wheel-choices-container" class="wheel-select-grid"></div>
+            </div>
+            
+            <div id="wheel-customizer-panel" class="hidden">
+              <h2 class="panel-header">CRAFT YOUR CUSTOM WHEEL</h2>
+              <p class="flavor-text">Select your numbers, toggle colors, set payouts, and build your board.</p>
+              
+              <div class="customizer-layout">
+                <!-- Left panel: Name & Payout multipliers -->
+                <div class="customizer-sidebar glass-panel">
+                  <div class="input-group">
+                    <label>Wheel Name:</label>
+                    <input type="text" id="cust-wheel-name" value="Custom Destroyer" maxlength="24">
+                  </div>
+                  <div class="input-group" style="margin-top: 10px;">
+                    <label>Description:</label>
+                    <input type="text" id="cust-wheel-desc" value="A bespoke engine of risk and blood." maxlength="80">
+                  </div>
+                  
+                  <div class="payout-inputs-header">Payout Multipliers:</div>
+                  <div class="payout-inputs-grid">
+                    <div class="input-group-inline">
+                      <label>Red:</label>
+                      <input type="number" id="cust-payout-red" value="2.0" step="0.1" min="1.0" max="10.0">
+                    </div>
+                    <div class="input-group-inline">
+                      <label>Black:</label>
+                      <input type="number" id="cust-payout-black" value="2.0" step="0.1" min="1.0" max="10.0">
+                    </div>
+                    <div class="input-group-inline">
+                      <label>Green:</label>
+                      <input type="number" id="cust-payout-green" value="10.0" step="0.5" min="2.0" max="50.0">
+                    </div>
+                    <div class="input-group-inline">
+                      <label>Single #:</label>
+                      <input type="number" id="cust-payout-number" value="12.0" step="1.0" min="5.0" max="100.0">
+                    </div>
+                    <div class="input-group-inline">
+                      <label>Odd:</label>
+                      <input type="number" id="cust-payout-odd" value="2.0" step="0.1" min="1.0" max="10.0">
+                    </div>
+                    <div class="input-group-inline">
+                      <label>Even:</label>
+                      <input type="number" id="cust-payout-even" value="2.0" step="0.1" min="1.0" max="10.0">
+                    </div>
+                  </div>
+                  
+                  <div class="customizer-actions">
+                    <button id="cust-cancel-btn" class="btn secondary-btn">✕ CANCEL</button>
+                    <button id="cust-start-btn" class="btn primary-btn pulse-glow">✓ SAVE & START</button>
+                  </div>
+                </div>
+                
+                <!-- Right panel: Interactive slot editor -->
+                <div class="customizer-board-editor glass-panel">
+                  <div class="editor-instructions">
+                    Click cells to toggle inclusion on the wheel. Click active cell color dots to cycle: 
+                    <span class="dot-desc color-green">Green</span> -> 
+                    <span class="dot-desc color-red">Red</span> -> 
+                    <span class="dot-desc color-black">Black</span>.
+                  </div>
+                  <div class="quick-templates">
+                    Quick Templates:
+                    <button class="template-btn" data-template="mini">Mini (0-12)</button>
+                    <button class="template-btn" data-template="even">Even Only</button>
+                    <button class="template-btn" data-template="reds">All Reds</button>
+                    <button class="template-btn" data-template="classic">Classic (0-36)</button>
+                  </div>
+                  
+                  <div class="numbers-selector-grid" id="cust-numbers-grid">
+                    <!-- Dynamic Grid will go here -->
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- PANEL: MAP PROGRESSION -->
@@ -311,13 +467,34 @@ export class GameUI {
               <button class="view-btn active" data-view="4">OVERVIEW</button>
               <button class="view-btn" data-view="1">CARDS</button>
               <button class="view-btn" data-view="2">BOARD</button>
-              <button class="view-btn" data-view="3">WHEEL</button>
-              <button class="view-btn" data-view="5">OPPONENT</button>
+              <button class="view-btn" data-view="3">MY WHEEL</button>
+              <button class="view-btn" data-view="6">OPP. WHEEL</button>
+              <button class="view-btn" data-view="5">OPP. BOARD</button>
+              <button class="view-btn" data-view="7">OPPONENT</button>
+            </div>
+
+            <!-- Draw Card & Deck Counters Panel -->
+            <div class="combat-deck-panel">
+              <button id="draw-card-btn" class="draw-card-btn">DRAW CARD (FREE)</button>
+              <div class="deck-counters">
+                <div class="deck-counter">
+                  <span class="counter-label">DRAW:</span>
+                  <span id="draw-pile-count" class="counter-value">0</span>
+                </div>
+                <div class="deck-counter">
+                  <span class="counter-label">DISC:</span>
+                  <span id="discard-pile-count" class="counter-value">0</span>
+                </div>
+                <div class="deck-counter">
+                  <span class="counter-label">HAND:</span>
+                  <span id="hand-count" class="counter-value">0</span>
+                </div>
+              </div>
             </div>
 
             <!-- Hand Instruction HUD -->
             <div class="combat-bottom-hud">
-              <span class="tutorial-tip">Drag chips from stack onto board to bet. Click 3D Bell to SPIN / END TURN. Press 'C' to Clear Bets. Press '1'-'4' / Arrow keys or click HUD to change camera view. Press 'D' to toggle Debug UI.</span>
+              <span class="tutorial-tip">Click DRAW CARD to buy cards from your deck. Click 3D Bell to SPIN / END TURN. Press 'C' to Clear Bets. Press '1'-'6' / Arrow keys to change camera view. Press 'D' to toggle Debug UI.</span>
               <div class="turn-chips-panel">
                 <span>TURN CHIPS:</span>
                 <span id="turn-chips-value" class="text-gold">10 ⚡</span>
@@ -352,6 +529,67 @@ export class GameUI {
       this.sound.playDraw();
       this.engine.startNewRun();
       this.render();
+    });
+
+    // Card Codex button
+    const codexBtn = this.root.querySelector('#codex-btn');
+    codexBtn?.addEventListener('click', () => {
+      this.sound.playDraw();
+      // Reset filters when opening
+      this.codexRarityFilter = 'all';
+      this.codexTypeFilter = 'all';
+      const filterBtns = this.root.querySelectorAll('#codex-panel .filter-btn');
+      filterBtns.forEach(btn => {
+        if (btn.getAttribute('data-value') === 'all') {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+      this.showCodex();
+    });
+
+    // Codex close button
+    const codexCloseBtn = this.root.querySelector('#codex-close-btn');
+    codexCloseBtn?.addEventListener('click', () => {
+      this.sound.playCardSwoosh();
+      const codexPanel = this.root.querySelector('#codex-panel');
+      codexPanel?.classList.add('hidden');
+    });
+
+    // Codex filter events delegation
+    const codexPanel = this.root.querySelector('#codex-panel');
+    codexPanel?.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.classList.contains('filter-btn')) {
+        const filterType = target.getAttribute('data-filter-type')!;
+        const value = target.getAttribute('data-value')!;
+        
+        // Update active class
+        const siblingButtons = target.parentElement?.querySelectorAll('.filter-btn');
+        siblingButtons?.forEach(btn => btn.classList.remove('active'));
+        target.classList.add('active');
+        
+        // Update filter state and re-render codex
+        this.sound.playRouletteClick(0.5);
+        if (filterType === 'rarity') {
+          this.codexRarityFilter = value;
+        } else if (filterType === 'type') {
+          this.codexTypeFilter = value;
+        }
+        this.showCodex();
+      }
+    });
+
+    // Draw Card button
+    const drawCardBtn = this.root.querySelector('#draw-card-btn');
+    drawCardBtn?.addEventListener('click', () => {
+      if (this.engine.buyCardDraw()) {
+        this.sound.playDraw();
+        this.render();
+      } else {
+        this.sound.playRouletteClick(0.3);
+      }
     });
 
     // Abandon run button
@@ -478,6 +716,12 @@ export class GameUI {
       document.body.classList.toggle('debug-ui-active');
       const isActive = document.body.classList.contains('debug-ui-active');
       if (debugToggleBtn) debugToggleBtn.textContent = `DEBUG UI: ${isActive ? 'ON' : 'OFF'}`;
+      
+      const statsOverlay = this.root.querySelector('#debug-stats-overlay');
+      if (statsOverlay) {
+        if (isActive) statsOverlay.classList.remove('hidden');
+        else statsOverlay.classList.add('hidden');
+      }
     });
 
     // Dev Tools Toggle
@@ -609,19 +853,22 @@ export class GameUI {
         if (dBtn) dBtn.click();
       }
 
-      // Switch views on '1' - '5'
-      if (['1', '2', '3', '4', '5'].includes(e.key)) {
+      // Switch views on '1' - '7'
+      if (['1', '2', '3', '4', '5', '6', '7'].includes(e.key)) {
         this.setCurrentView(parseInt(e.key));
       }
 
       // Arrow keys navigation
       if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
         let nextView = this.currentView;
+        const viewOrder = [4, 1, 2, 3, 6, 5, 7];
+        const currentIdx = viewOrder.indexOf(this.currentView);
         if (e.key === 'ArrowRight') {
-          nextView = (this.currentView % 5) + 1;
+          const nextIdx = (currentIdx + 1) % viewOrder.length;
+          nextView = viewOrder[nextIdx];
         } else {
-          nextView = this.currentView - 1;
-          if (nextView < 1) nextView = 5;
+          const prevIdx = (currentIdx - 1 + viewOrder.length) % viewOrder.length;
+          nextView = viewOrder[prevIdx];
         }
         this.setCurrentView(nextView);
       }
@@ -710,19 +957,16 @@ export class GameUI {
     
     setTimeout(playClick, 100);
 
-    // Continuous physics step simulations
-    const interval = setInterval(() => {
-      this.engine.physics.update(0.016); // 60 FPS steps
-      
-      if (this.engine.physics.isSettled) {
-        clearInterval(interval);
+    // Continuous physics step simulations managed by 3D renderer for smooth rendering
+    if (this.renderer) {
+      this.renderer.onSpinSettled = () => {
         if (isEnemySpin) {
           this.resolveEnemySpinOutcome();
         } else {
           this.resolveSpinOutcome();
         }
-      }
-    }, 16);
+      };
+    }
   }
 
   private resolveSpinOutcome() {
@@ -755,6 +999,28 @@ export class GameUI {
     const battle = this.engine.battleState;
     if (!battle) return;
 
+    if (battle.boardModifiers.enemyStunTurns && battle.boardModifiers.enemyStunTurns > 0) {
+      battle.boardModifiers.enemyStunTurns--;
+      this.spinMessage = "ENEMY IS STUNNED! TURN SKIPPED!";
+      this.render();
+      setTimeout(() => {
+        this.engine.resolveEnemyTurn();
+        this.setCurrentView(4);
+        this.render();
+      }, 2000);
+      return;
+    } else if (battle.boardModifiers.enemyNextStun) {
+      battle.boardModifiers.enemyNextStun = false;
+      this.spinMessage = "ENEMY IS STUNNED! TURN SKIPPED!";
+      this.render();
+      setTimeout(() => {
+        this.engine.resolveEnemyTurn();
+        this.setCurrentView(4);
+        this.render();
+      }, 2000);
+      return;
+    }
+
     // Set active wheel owner to enemy so camera, physics, and board update correctly
     battle.activeWheelOwner = 'enemy';
     this.render();
@@ -780,8 +1046,8 @@ export class GameUI {
       setTimeout(() => {
         if (!this.engine.battleState) return;
 
-        // 6. Move camera to view 3 (Wheel view)
-        this.setCurrentView(3);
+        // 6. Move camera to view 6 (Enemy Wheel view)
+        this.setCurrentView(6);
 
         // 7. Wait for camera to settle (1.0 second) before spinning
         setTimeout(() => {
@@ -901,7 +1167,7 @@ export class GameUI {
         if (bet.type === 'red' && res.color === 'red') { isWin = true; mult = activeWheel.payoutMultipliers.red; }
         else if (bet.type === 'black' && res.color === 'black') { isWin = true; mult = activeWheel.payoutMultipliers.black; }
         else if (bet.type === 'green') {
-          const isGreenSlot = activeWheel.greenNumbers.includes(res.number) || (res.number === 32 && battle.boardModifiers.extraGreenSlots > 0);
+          const isGreenSlot = getSlotColor(res.number, activeWheel, battle.boardModifiers) === 'green';
           if (isGreenSlot) { isWin = true; mult = activeWheel.payoutMultipliers.green; }
         }
         else if (bet.type === 'number' && bet.numberValue === res.number) { isWin = true; mult = activeWheel.payoutMultipliers.number; }
@@ -1014,6 +1280,7 @@ export class GameUI {
     // Toggle main screens
     this.togglePanel('menu-panel', state.gameState === 'MENU');
     this.togglePanel('wheel-select-panel', state.gameState === 'WHEEL_SELECT');
+    this.togglePanel('deck-draft-panel', state.gameState === 'DECK_DRAFT');
     this.togglePanel('map-panel', state.gameState === 'MAP');
     this.togglePanel('shop-panel', state.gameState === 'SHOP');
     this.togglePanel('event-panel', state.gameState === 'EVENT');
@@ -1021,7 +1288,7 @@ export class GameUI {
     this.togglePanel('victory-panel', state.gameState === 'VICTORY');
     
     // Toggle overlays
-    this.togglePanel('hud-panel', state.gameState !== 'MENU' && state.gameState !== 'WHEEL_SELECT' && state.gameState !== 'GAME_OVER' && state.gameState !== 'VICTORY');
+    this.togglePanel('hud-panel', state.gameState !== 'MENU' && state.gameState !== 'WHEEL_SELECT' && state.gameState !== 'DECK_DRAFT' && state.gameState !== 'GAME_OVER' && state.gameState !== 'VICTORY');
     this.togglePanel('combat-ui', state.gameState === 'COMBAT');
     
     // Update Top HUD
@@ -1041,6 +1308,11 @@ export class GameUI {
     // Handle Wheel Selection Panel Rendering
     if (state.gameState === 'WHEEL_SELECT') {
       this.renderWheelSelect();
+    }
+
+    // Handle Deck Draft Panel Rendering
+    if (state.gameState === 'DECK_DRAFT') {
+      this.renderDeckDraft();
     }
 
     // Handle Map Panel Rendering
@@ -1229,17 +1501,27 @@ export class GameUI {
 
     // Populate random cards if empty for this shop visit
     if (this.shopCards.length === 0) {
-      const keys = Object.keys(CARD_DATABASE);
       // Select 3 random cards to sell
       for (let i = 0; i < 3; i++) {
-        const key = keys[Math.floor(Math.random() * keys.length)];
+        const key = getRandomCardId();
         const cardDef = CARD_DATABASE[key];
-        const cost = 12 + Math.floor(Math.random() * 8); // e.g. 12-20 chips
+        let cost = 12 + Math.floor(Math.random() * 8);
+        if (cardDef.rarity === 'common') {
+          cost = 8 + Math.floor(Math.random() * 6); // 8-13 chips
+        } else if (cardDef.rarity === 'uncommon') {
+          cost = 14 + Math.floor(Math.random() * 8); // 14-21 chips
+        } else if (cardDef.rarity === 'rare') {
+          cost = 25 + Math.floor(Math.random() * 11); // 25-35 chips
+        } else if (cardDef.rarity === 'legendary') {
+          cost = 45 + Math.floor(Math.random() * 16); // 45-60 chips
+        }
         this.shopCards.push({
           cardId: key,
           name: cardDef.name,
           cost,
-          desc: cardDef.description
+          desc: cardDef.description,
+          rarity: cardDef.rarity,
+          type: cardDef.type
         });
       }
     }
@@ -1249,8 +1531,10 @@ export class GameUI {
     // Render Cards in Shop
     this.shopCards.forEach((item, index) => {
       const canAfford = state.chips >= item.cost;
+      const rarityClass = `shop-card-rarity-${item.rarity}`;
       html += `
-        <div class="shop-card-item glass-panel">
+        <div class="shop-card-item glass-panel ${rarityClass}">
+          <div class="shop-card-meta">${item.type} · ${item.rarity}</div>
           <div class="card-title">${item.name}</div>
           <div class="card-desc">${item.desc}</div>
           <button class="btn primary-btn buy-btn" data-idx="${index}" ${!canAfford ? 'disabled' : ''}>
@@ -1347,6 +1631,20 @@ export class GameUI {
   }
 
   private renderWheelSelect() {
+    const mainView = this.root.querySelector('#wheel-select-main-view') as HTMLElement;
+    const customizerView = this.root.querySelector('#wheel-customizer-panel') as HTMLElement;
+    if (!mainView || !customizerView) return;
+
+    if (this.isCustomizingWheel) {
+      mainView.classList.add('hidden');
+      customizerView.classList.remove('hidden');
+      this.renderWheelCustomizer();
+      return;
+    }
+
+    mainView.classList.remove('hidden');
+    customizerView.classList.add('hidden');
+
     const container = this.root.querySelector('#wheel-choices-container')!;
     if (!container) return;
     
@@ -1389,9 +1687,171 @@ export class GameUI {
       card.addEventListener('click', () => {
         const id = card.getAttribute('data-id')!;
         this.sound.playDraw();
-        this.engine.selectStartingWheel(id);
+        const needsCustomization = this.engine.selectStartingWheel(id);
+        if (needsCustomization) {
+          this.isCustomizingWheel = true;
+          this.initCustomColors();
+        }
         this.render();
       });
+    });
+  }
+
+  private renderWheelCustomizer() {
+    const gridContainer = this.root.querySelector('#cust-numbers-grid');
+    if (!gridContainer) return;
+
+    let html = '';
+    const reds = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
+    
+    for (let i = 0; i <= 36; i++) {
+      const isActive = this.customWheelData.numbers.includes(i);
+      const color = this.customWheelData.colors[i] || (i === 0 ? 'green' : (reds.has(i) ? 'red' : 'black'));
+      
+      html += `
+        <div class="cell-option ${isActive ? 'active' : ''}" data-num="${i}">
+          <span class="cell-num">${i}</span>
+          ${isActive ? `<span class="cell-color-indicator ${color}" data-num="${i}"></span>` : ''}
+        </div>
+      `;
+    }
+    
+    gridContainer.innerHTML = html;
+
+    // Bind click events on the cell option
+    const cells = gridContainer.querySelectorAll('.cell-option');
+    cells.forEach(cell => {
+      cell.addEventListener('click', (e) => {
+        const num = parseInt(cell.getAttribute('data-num')!);
+        const target = e.target as HTMLElement;
+        
+        // Check if color indicator dot was clicked to cycle color
+        if (target.classList.contains('cell-color-indicator')) {
+          e.stopPropagation();
+          const currColor = this.customWheelData.colors[num] || 'black';
+          let nextColor: 'red' | 'black' | 'green' = 'red';
+          
+          if (currColor === 'green') {
+            nextColor = 'red';
+            this.customWheelData.greenNumbers = this.customWheelData.greenNumbers.filter(n => n !== num);
+          } else if (currColor === 'red') {
+            nextColor = 'black';
+            this.customWheelData.greenNumbers = this.customWheelData.greenNumbers.filter(n => n !== num);
+          } else {
+            nextColor = 'green';
+            if (!this.customWheelData.greenNumbers.includes(num)) {
+              this.customWheelData.greenNumbers.push(num);
+            }
+          }
+          
+          this.customWheelData.colors[num] = nextColor;
+          this.sound.playRouletteClick(0.5);
+          this.renderWheelCustomizer();
+          return;
+        }
+
+        // Toggle cell selection
+        const idx = this.customWheelData.numbers.indexOf(num);
+        if (idx >= 0) {
+          if (this.customWheelData.numbers.length <= 1) {
+            // Must have at least 1 slot
+            this.sound.playRouletteClick(0.3);
+            return;
+          }
+          this.customWheelData.numbers.splice(idx, 1);
+          this.customWheelData.greenNumbers = this.customWheelData.greenNumbers.filter(n => n !== num);
+        } else {
+          this.customWheelData.numbers.push(num);
+          // Set default color
+          if (num === 0) {
+            this.customWheelData.colors[num] = 'green';
+            if (!this.customWheelData.greenNumbers.includes(num)) this.customWheelData.greenNumbers.push(num);
+          } else {
+            this.customWheelData.colors[num] = reds.has(num) ? 'red' : 'black';
+          }
+        }
+        
+        this.sound.playDraw();
+        this.renderWheelCustomizer();
+      });
+    });
+
+    // Bind Quick Templates buttons
+    const templateBtns = this.root.querySelectorAll('.quick-templates .template-btn');
+    templateBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const template = btn.getAttribute('data-template')!;
+        this.sound.playCardSwoosh();
+        
+        if (template === 'mini') {
+          this.customWheelData.numbers = [0, 9, 2, 7, 4, 5, 12, 1, 10, 3, 8, 11, 6];
+          this.customWheelData.greenNumbers = [0];
+          this.initCustomColors();
+        } else if (template === 'even') {
+          this.customWheelData.numbers = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36];
+          this.customWheelData.greenNumbers = [0];
+          this.initCustomColors();
+        } else if (template === 'reds') {
+          this.customWheelData.numbers = [0, 1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
+          this.customWheelData.greenNumbers = [0];
+          this.customWheelData.colors = {};
+          this.customWheelData.numbers.forEach(n => {
+            this.customWheelData.colors[n] = n === 0 ? 'green' : 'red';
+          });
+        } else if (template === 'classic') {
+          this.customWheelData.numbers = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
+          this.customWheelData.greenNumbers = [0];
+          this.initCustomColors();
+        }
+        
+        this.renderWheelCustomizer();
+      });
+    });
+
+    // Bind Cancel Button
+    const cancelBtn = this.root.querySelector('#cust-cancel-btn');
+    cancelBtn?.replaceWith(cancelBtn.cloneNode(true)); // remove old listeners
+    const freshCancelBtn = this.root.querySelector('#cust-cancel-btn')!;
+    freshCancelBtn.addEventListener('click', () => {
+      this.sound.playCardSwoosh();
+      this.isCustomizingWheel = false;
+      this.render();
+    });
+
+    // Bind Start Button
+    const startBtn = this.root.querySelector('#cust-start-btn');
+    startBtn?.replaceWith(startBtn.cloneNode(true));
+    const freshStartBtn = this.root.querySelector('#cust-start-btn')!;
+    freshStartBtn.addEventListener('click', () => {
+      if (this.customWheelData.numbers.length === 0) {
+        alert("The wheel must contain at least 1 slot.");
+        return;
+      }
+      
+      const nameInput = this.root.querySelector('#cust-wheel-name') as HTMLInputElement;
+      const descInput = this.root.querySelector('#cust-wheel-desc') as HTMLInputElement;
+      this.customWheelData.name = nameInput.value || 'Custom Destroyer';
+      this.customWheelData.description = descInput.value || 'A bespoke engine of risk and blood.';
+
+      // Parse payouts
+      this.customWheelData.payoutMultipliers.red = parseFloat((this.root.querySelector('#cust-payout-red') as HTMLInputElement).value) || 2.0;
+      this.customWheelData.payoutMultipliers.black = parseFloat((this.root.querySelector('#cust-payout-black') as HTMLInputElement).value) || 2.0;
+      this.customWheelData.payoutMultipliers.green = parseFloat((this.root.querySelector('#cust-payout-green') as HTMLInputElement).value) || 10.0;
+      this.customWheelData.payoutMultipliers.number = parseFloat((this.root.querySelector('#cust-payout-number') as HTMLInputElement).value) || 12.0;
+      this.customWheelData.payoutMultipliers.odd = parseFloat((this.root.querySelector('#cust-payout-odd') as HTMLInputElement).value) || 2.0;
+      this.customWheelData.payoutMultipliers.even = parseFloat((this.root.querySelector('#cust-payout-even') as HTMLInputElement).value) || 2.0;
+
+      // Fill colors for all enabled numbers that aren't defined
+      this.customWheelData.numbers.forEach(n => {
+        if (!this.customWheelData.colors[n]) {
+          this.customWheelData.colors[n] = this.customWheelData.greenNumbers.includes(n) ? 'green' : (reds.has(n) ? 'red' : 'black');
+        }
+      });
+
+      this.sound.playBell();
+      this.isCustomizingWheel = false;
+      this.engine.selectCustomWheel(JSON.parse(JSON.stringify(this.customWheelData)));
+      this.render();
     });
   }
 
@@ -1478,6 +1938,45 @@ export class GameUI {
     const turnChipsVal = this.root.querySelector('#turn-chips-value') as HTMLElement;
     if (turnChipsVal) turnChipsVal.innerText = `${battle.chipsPool} ⚡`;
 
+    // Update deck counters
+    const drawPileCount = this.root.querySelector('#draw-pile-count') as HTMLElement;
+    const discardPileCount = this.root.querySelector('#discard-pile-count') as HTMLElement;
+    const handCount = this.root.querySelector('#hand-count') as HTMLElement;
+    if (drawPileCount) drawPileCount.innerText = `${battle.drawPile.length}`;
+    if (discardPileCount) discardPileCount.innerText = `${battle.discardPile.length}`;
+    if (handCount) handCount.innerText = `${battle.hand.length}`;
+
+    // Update Draw Card button availability and text
+    const drawCardBtn = this.root.querySelector('#draw-card-btn') as HTMLButtonElement;
+    if (drawCardBtn) {
+      const cost = this.engine.getDrawCardCost();
+      const costText = cost === 0 ? "FREE" : `${cost} ⚡`;
+      drawCardBtn.innerText = `DRAW CARD (${costText})`;
+      
+      const canDraw = battle.chipsPool >= cost && 
+                      battle.phase === 'betting' && 
+                      !this.isSpinning && 
+                      (battle.drawPile.length > 0 || battle.discardPile.length > 0) && 
+                      battle.hand.length < 8;
+      drawCardBtn.disabled = !canDraw;
+    }
+
+    // Update block shield indicator on player HP bar
+    const hpBarContainer = this.root.querySelector('.hp-display .bar-container') as HTMLElement;
+    if (hpBarContainer) {
+      // Remove existing block indicator
+      const existingBlock = hpBarContainer.querySelector('.block-indicator');
+      if (existingBlock) existingBlock.remove();
+      
+      if (battle.playerBlock > 0) {
+        const blockEl = document.createElement('div');
+        blockEl.className = 'block-indicator';
+        blockEl.innerText = `🛡 ${battle.playerBlock}`;
+        hpBarContainer.style.position = 'relative';
+        hpBarContainer.appendChild(blockEl);
+      }
+    }
+
     // Re-render HTML betting board number grid dynamically based on player wheel configuration
     const numGridContainer = this.root.querySelector('.number-grid-container') as HTMLElement;
     if (numGridContainer && battle.playerWheel) {
@@ -1485,15 +1984,19 @@ export class GameUI {
       const greenNums = activeWheel.greenNumbers;
       const otherNums = activeWheel.numbers.filter(n => !greenNums.includes(n)).sort((a, b) => a - b);
       
+      const predictionSector = battle.predictionSector || [];
+      
       let gridHtml = '';
       // Render green numbers
       greenNums.forEach(num => {
-        gridHtml += `<div class="num-cell num-green" data-num="${num}">${num}</div>`;
+        const isPredicted = predictionSector.includes(num) ? ' predicted' : '';
+        gridHtml += `<div class="num-cell num-green${isPredicted}" data-num="${num}">${num}</div>`;
       });
       // Render standard numbers
       otherNums.forEach(num => {
         const color = getSlotColor(num, activeWheel, battle.boardModifiers);
-        gridHtml += `<div class="num-cell num-${color}" data-num="${num}">${num}</div>`;
+        const isPredicted = predictionSector.includes(num) ? ' predicted' : '';
+        gridHtml += `<div class="num-cell num-${color}${isPredicted}" data-num="${num}">${num}</div>`;
       });
       
       numGridContainer.innerHTML = gridHtml;
@@ -1588,6 +2091,141 @@ export class GameUI {
       spinText.innerHTML = this.spinMessage;
     } else {
       spinOverlay.classList.add('hidden');
+    }
+  }
+
+  // Card Codex Screen
+  private showCodex() {
+    const codexPanel = this.root.querySelector('#codex-panel') as HTMLElement;
+    const codexGrid = this.root.querySelector('#codex-grid') as HTMLElement;
+    if (!codexPanel || !codexGrid) return;
+
+    let allCards = GameEngine.getAllCardTemplates();
+    
+    // Sort allCards: Legendary -> Rare -> Uncommon -> Common.
+    // Within the same rarity, sort by cost ascending, then by name.
+    const rarityOrder: Record<string, number> = { legendary: 0, rare: 1, uncommon: 2, common: 3 };
+    allCards.sort((a, b) => {
+      const diff = rarityOrder[a.rarity] - rarityOrder[b.rarity];
+      if (diff !== 0) return diff;
+      const costDiff = a.cost - b.cost;
+      if (costDiff !== 0) return costDiff;
+      return a.name.localeCompare(b.name);
+    });
+
+    // Apply active filters
+    if (this.codexRarityFilter !== 'all') {
+      allCards = allCards.filter(c => c.rarity === this.codexRarityFilter);
+    }
+    if (this.codexTypeFilter !== 'all') {
+      allCards = allCards.filter(c => c.type === this.codexTypeFilter);
+    }
+
+    if (allCards.length === 0) {
+      codexGrid.innerHTML = `<div class="codex-empty-message">No cards found matching the selected filters.</div>`;
+      return;
+    }
+    
+    codexGrid.innerHTML = allCards.map(card => {
+      const rarityClass = `codex-card-rarity-${card.rarity}`;
+      return `
+        <div class="codex-card ${rarityClass}">
+          <div class="codex-card-header">
+            <span class="codex-card-name">${card.name}</span>
+            <span class="codex-card-cost">${card.cost} ⚡</span>
+          </div>
+          <div class="codex-card-desc">${card.description}</div>
+          <div class="codex-card-meta">
+            <span>${card.type}</span>
+            <span>${card.rarity}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    codexPanel.classList.remove('hidden');
+  }
+
+  // Deck Draft Screen Rendering
+  private renderDeckDraft() {
+    const progressText = this.root.querySelector('#draft-progress-text') as HTMLElement;
+    const choicesContainer = this.root.querySelector('#draft-choices-container') as HTMLElement;
+    const deckPreview = this.root.querySelector('#draft-deck-preview') as HTMLElement;
+    
+    if (!progressText || !choicesContainer || !deckPreview) return;
+
+    const progress = this.engine.runState.draftProgress ?? 0;
+    const deck = this.engine.runState.deck || [];
+
+    if (progress < 2) {
+      deckPreview.style.display = 'block';
+      progressText.innerText = progress === 0 
+        ? "Pick 1 Rare card out of three options:" 
+        : "Pick 1 Uncommon card out of three options:";
+
+      const choices = this.engine.getDraftChoices();
+      
+      choicesContainer.innerHTML = choices.map(card => {
+        const rarityClass = `draft-card-rarity-${card.rarity}`;
+        return `
+          <div class="draft-card ${rarityClass}" data-card-id="${card.id}">
+            <div class="draft-card-name">${card.name}</div>
+            <div class="draft-card-cost">Cost: ${card.cost} ⚡</div>
+            <div class="draft-card-desc">${card.description}</div>
+            <div class="draft-card-meta">${card.type} · ${card.rarity}</div>
+          </div>
+        `;
+      }).join('');
+
+      // Show current deck preview
+      if (deck.length > 0) {
+        deckPreview.innerHTML = `Your current deck: <span>${deck.map(c => c.name).join(', ')}</span>`;
+      } else {
+        deckPreview.innerHTML = 'Your deck is empty.';
+      }
+
+      // Bind click events on draft cards
+      const draftCards = choicesContainer.querySelectorAll('.draft-card');
+      draftCards.forEach(cardEl => {
+        cardEl.addEventListener('click', () => {
+          const cardId = cardEl.getAttribute('data-card-id')!;
+          if (this.engine.pickDraftCard(cardId)) {
+            this.sound.playDraw();
+            this.render();
+          }
+        });
+      });
+    } else {
+      deckPreview.style.display = 'none';
+      progressText.innerText = "Here is your starting deck. 5 random Common cards have been added to your draft picks.";
+
+      choicesContainer.innerHTML = `
+        <div class="draft-complete-view">
+          <div class="draft-final-deck-grid">
+            ${deck.map(card => {
+              const rarityClass = `draft-card-rarity-${card.rarity}`;
+              return `
+                <div class="draft-card ${rarityClass} non-interactive">
+                  <div class="draft-card-name">${card.name}</div>
+                  <div class="draft-card-cost">Cost: ${card.cost} ⚡</div>
+                  <div class="draft-card-desc">${card.description}</div>
+                  <div class="draft-card-meta">${card.type} · ${card.rarity}</div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+          <button id="draft-continue-btn" class="btn primary-btn pulse-glow" style="margin-top: 30px; font-size: 20px; padding: 12px 30px;">ENTER THE TAVERN</button>
+        </div>
+      `;
+
+      const continueBtn = choicesContainer.querySelector('#draft-continue-btn');
+      if (continueBtn) {
+        continueBtn.addEventListener('click', () => {
+          this.sound.playCardSwoosh();
+          this.engine.completeDraft();
+          this.render();
+        });
+      }
     }
   }
 }

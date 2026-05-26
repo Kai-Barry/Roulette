@@ -1,7 +1,7 @@
-export type GameState = 'MENU' | 'WHEEL_SELECT' | 'MAP' | 'COMBAT' | 'SHOP' | 'EVENT' | 'GAME_OVER' | 'VICTORY';
+export type GameState = 'MENU' | 'WHEEL_SELECT' | 'DECK_DRAFT' | 'MAP' | 'COMBAT' | 'SHOP' | 'EVENT' | 'GAME_OVER' | 'VICTORY';
 
 export type CardType = 'physics' | 'board' | 'payout' | 'utility';
-export type CardRarity = 'common' | 'uncommon' | 'rare';
+export type CardRarity = 'common' | 'uncommon' | 'rare' | 'legendary';
 
 export interface Card {
   id: string;
@@ -89,6 +89,8 @@ export interface RunState {
   gameState: GameState;
   selectedWheelId: string;
   playerWheel: WheelConfig;
+  draftPile?: Card[];
+  draftProgress?: number;
 }
 
 export interface Bet {
@@ -106,16 +108,28 @@ export interface BattleState {
   discardPile: Card[];
   bets: Bet[];
   activePlayedCards?: Card[];
+  drawsThisTurn: number;
   playerWheel: WheelConfig;
   enemyWheel: WheelConfig;
+  playerBlock: number; // Shield value
+  predictionSector?: number[]; // List of numbers predicted to win
+  spinSeedAngle?: number;
+  ballSeedAngle?: number;
+  spinSeedSpeed?: number;
+  ballSeedSpeed?: number;
   turnStartBackup?: {
     chipsPool: number;
     hp: number;
+    playerBlock: number;
     physicsModifiers: PhysicsModifiers;
     boardModifiers: BoardModifiers;
     enemyIntent: EnemyIntent;
     playerWheel: WheelConfig;
     enemyWheel: WheelConfig;
+    spinSeedAngle?: number;
+    ballSeedAngle?: number;
+    spinSeedSpeed?: number;
+    ballSeedSpeed?: number;
   } | null;
   lastSpinResult: {
     number: number;
@@ -138,6 +152,11 @@ export interface PhysicsModifiers {
   bounceRandomness: number; // Scale (default 0.1)
   wheelTilt: number;        // Angle (default 0)
   targetZoneBias: number;   // Bias towards active bets (-1 to 1)
+  predictionSize: number;   // Size of sector to predict (e.g. 3, 5, 7 or 0 if none)
+  nudgeCheatActive: boolean; // Is nudge cheat active?
+  biasRedOnly?: boolean;
+  biasBlackOnly?: boolean;
+  nudgeDistance?: number;   // Max slots to nudge
 }
 
 export interface BoardModifiers {
@@ -152,4 +171,29 @@ export interface BoardModifiers {
     odd: number;     // default 2
     even: number;    // default 2
   };
+  primeMultiplier?: number;
+  highMultiplier?: number; // 19-36
+  lowMultiplier?: number;  // 1-18
+  dozenMultipliers?: Record<number, number>; // dozen index 1, 2, 3 -> multiplier
+  columnMultipliers?: Record<number, number>; // col index 1, 2, 3 -> multiplier
+  customNumberMultipliers?: Record<number, number>; // number -> multiplier
+  luckyZones?: number[]; // list of numbers in lucky zones (+1.5x damage)
+  cursedZones?: number[]; // list of numbers in cursed zones (enemy stun)
+  chipMines?: Record<number, number>; // number -> chip reward
+  lifeFountains?: Record<number, number>; // number -> healing amount
+  shieldGenerators?: Record<number, number>; // number -> block amount
+  dangerZones?: Record<number, number>; // number -> flat damage to enemy
+  goldFoils?: number[]; // numbers with 3x damage multiplier
+  copperPlates?: number[]; // numbers with 1.5x damage multiplier
+  voidHoles?: number[]; // numbers that break enemy block
+  mirrorSlots?: Record<number, number>; // source number -> mirror target number
+  doubleNextPayout?: boolean;
+  insuranceActive?: boolean;
+  redStreakCount?: number;
+  blackStreakCount?: number;
+  redStreakActive?: boolean;
+  blackStreakActive?: boolean;
+  globalMultiplier?: number;
+  enemyNextStun?: boolean;
+  enemyStunTurns?: number;
 }

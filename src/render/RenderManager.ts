@@ -75,11 +75,7 @@ export class RenderManager {
   cameraCurrentLookAt = new THREE.Vector3(0, 0.15, -0.2);
 
   // Texture force upload tracking
-  private texturesInitialized = false;
-  private textureUploadFrames = 30;
   private wasInBattle = false;
-  private lastActiveView = -1;
-  private frameCount = 0;
 
   // Opponent action animation
   oppActionCardMesh: THREE.Mesh | null = null;
@@ -88,6 +84,17 @@ export class RenderManager {
   oppAnimChips: THREE.Mesh[] = [];
   oppAnimChipsStart = new THREE.Vector3();
   oppAnimChipsEnd = new THREE.Vector3();
+
+  // Smooth frame-locked physics sync
+  onSpinSettled?: () => void;
+  private lastPhysicsTime = 0;
+  private physicsAccumulator = 0;
+
+  // FPS performance metrics
+  private fpsLastTime = 0;
+  private fpsFrames = 0;
+  private fpsHistory: number[] = [];
+  private readonly maxFpsHistory = 80;
 
   // 3D Chip Dragging
   isDragging = false;
@@ -228,8 +235,8 @@ export class RenderManager {
       fog: false
     });
     this.playerFeltMesh = new THREE.Mesh(feltGeo, playerFeltMat);
-    this.playerFeltMesh.rotation.x = -Math.PI / 2;
-    this.playerFeltMesh.position.set(-0.8, 0.005, 0.45);
+    this.playerFeltMesh.rotation.x = -Math.PI / 2; // Player board faces the player
+    this.playerFeltMesh.position.set(0.0, 0.005, 0.45);
     this.scene.add(this.playerFeltMesh);
 
     // Enemy Felt
@@ -238,8 +245,8 @@ export class RenderManager {
       fog: false
     });
     this.enemyFeltMesh = new THREE.Mesh(feltGeo, enemyFeltMat);
-    this.enemyFeltMesh.rotation.x = -Math.PI / 2;
-    this.enemyFeltMesh.position.set(0.8, 0.005, -1.95);
+    this.enemyFeltMesh.rotation.set(-Math.PI / 2, 0, Math.PI); // Enemy board rotated 180 degrees to face the enemy
+    this.enemyFeltMesh.position.set(0.0, 0.005, -1.95);
     this.scene.add(this.enemyFeltMesh);
 
     // Initialize Chip Materials (Using retro MeshPhongMaterial with high contrast)
@@ -253,7 +260,7 @@ export class RenderManager {
 
     // 2c. 3D Bell Turn Trigger
     this.bellGroup = new THREE.Group();
-    this.bellGroup.position.set(-0.53, 0.005, 0.75);
+    this.bellGroup.position.set(0.27, 0.005, 0.75);
     this.scene.add(this.bellGroup);
 
     const bellBaseGeo = new THREE.CylinderGeometry(0.06, 0.065, 0.015, 10);
@@ -315,7 +322,7 @@ export class RenderManager {
     });
     const labelsMesh = new THREE.Mesh(labelsGeo, labelsMat);
     labelsMesh.rotation.x = -Math.PI / 2;
-    labelsMesh.position.set(-0.27, 0.006, 0.90);
+    labelsMesh.position.set(0.53, 0.006, 0.90);
     this.scene.add(labelsMesh);
 
     // 2e. Opponent Hand Facedown Cards & messy static chips
@@ -330,7 +337,7 @@ export class RenderManager {
       const oppCard = new THREE.Mesh(oppCardGeo, oppCardMat);
       oppCard.rotation.x = -Math.PI / 2;
       const offsetAngle = (i - 1) * 0.15;
-      oppCard.position.set((i - 1) * 0.16, 0.006, -1.6 - Math.abs(i - 1) * 0.02);
+      oppCard.position.set((i - 1) * 0.16, 0.006, -2.42 - Math.abs(i - 1) * 0.02);
       oppCard.rotation.z = -offsetAngle;
       oppCard.castShadow = true;
       this.scene.add(oppCard);
@@ -342,23 +349,24 @@ export class RenderManager {
     
     for (let j = 0; j < 5; j++) {
       const chip = new THREE.Mesh(oppChipGeo, oppBlackMat);
-      chip.position.set(-0.35 + (Math.random() - 0.5) * 0.004, 0.005 + j * 0.006, -1.5 + (Math.random() - 0.5) * 0.004);
+      chip.position.set(-0.35 + (Math.random() - 0.5) * 0.004, 0.005 + j * 0.006, -2.42 + (Math.random() - 0.5) * 0.004);
       this.scene.add(chip);
     }
     for (let j = 0; j < 3; j++) {
       const chip = new THREE.Mesh(oppChipGeo, oppRedMat);
-      chip.position.set(-0.40 + (Math.random() - 0.5) * 0.004, 0.005 + j * 0.006, -1.45 + (Math.random() - 0.5) * 0.004);
+      chip.position.set(-0.40 + (Math.random() - 0.5) * 0.004, 0.005 + j * 0.006, -2.37 + (Math.random() - 0.5) * 0.004);
       this.scene.add(chip);
     }
     for (let j = 0; j < 6; j++) {
       const chip = new THREE.Mesh(oppChipGeo, oppRedMat);
-      chip.position.set(0.35 + (Math.random() - 0.5) * 0.004, 0.005 + j * 0.006, -1.5 + (Math.random() - 0.5) * 0.004);
+      chip.position.set(0.35 + (Math.random() - 0.5) * 0.004, 0.005 + j * 0.006, -2.42 + (Math.random() - 0.5) * 0.004);
       this.scene.add(chip);
     }
 
     // 3. Enemy
     this.enemyVis = new EnemyVisual();
-    this.enemyVis.group.position.set(0, 0.05, -2.5);
+    this.enemyVis.group.position.set(0, 0.05, -3.0);
+    this.enemyVis.group.scale.set(0.75, 0.75, 0.75);
     this.scene.add(this.enemyVis.group);
 
     // 4. Creepy Closed Cellar Walls & Ceiling (using MeshPhongMaterial + fog + shadow mapping)
@@ -547,6 +555,10 @@ export class RenderManager {
 
     // 3. Draw numbers grid
     ctx.font = cols > 12 ? 'bold 22px "Courier Prime", monospace' : 'bold 36px "Courier Prime", monospace';
+    
+    // Get prediction sector if available
+    const predictionSector = (!isEnemy && battle) ? (battle.predictionSector || []) : [];
+    
     for (let col = 0; col < cols; col++) {
       for (let row = 0; row < 3; row++) {
         const index = 3 * col + (2 - row);
@@ -568,6 +580,19 @@ export class RenderManager {
 
         ctx.fillStyle = '#ffffff';
         ctx.fillText(num.toString(), x + colWidth / 2, y + rowHeight / 2);
+        
+        // Render prediction glow for predicted cells
+        if (predictionSector.includes(num)) {
+          ctx.save();
+          ctx.strokeStyle = '#00ff64';
+          ctx.lineWidth = 4;
+          ctx.strokeRect(x + 2, y + 2, colWidth - 6, rowHeight - 6);
+          
+          // Semi-transparent green overlay
+          ctx.fillStyle = 'rgba(0, 255, 100, 0.2)';
+          ctx.fillRect(x, y, colWidth - 2, rowHeight - 2);
+          ctx.restore();
+        }
       }
     }
 
@@ -863,8 +888,8 @@ export class RenderManager {
   }
 
   private getFeltCellAtPosition(wx: number, wz: number): { type: string; numberValue?: number } | null {
-    // Player's board is centered at X = -0.8 with width = 1.2
-    const lx = wx - (-0.8);
+    // Player's board is centered at X = 0.0 with width = 1.2
+    const lx = wx - 0.0;
     const lz = wz - 0.45;
 
     if (lx < -0.6 || lx > 0.6 || lz < -0.275 || lz > 0.275) {
@@ -1300,7 +1325,7 @@ export class RenderManager {
     ];
 
     this.oppActionCardMesh = new THREE.Mesh(cardGeo, materials);
-    this.oppActionCardMesh.position.set(0, 0.1, -1.6);
+    this.oppActionCardMesh.position.set(0, 0.1, -2.62);
     this.oppActionCardMesh.rotation.set(-Math.PI / 2, Math.PI, 0);
     this.oppActionCardMesh.castShadow = true;
     this.scene.add(this.oppActionCardMesh);
@@ -1319,7 +1344,7 @@ export class RenderManager {
     const count = Math.max(1, Math.min(5, intent.value));
     for (let i = 0; i < count; i++) {
       const chip = new THREE.Mesh(chipGeo, chipMat);
-      chip.position.set(0.35, 0.005 + i * 0.007, -1.5);
+      chip.position.set(0.35, 0.005 + i * 0.007, -2.5);
       chip.castShadow = true;
       chip.receiveShadow = true;
       this.scene.add(chip);
@@ -1330,6 +1355,94 @@ export class RenderManager {
 
     this.oppAnimTime = 0;
     this.oppAnimType = 'card_play';
+  }
+
+  private updateFpsStats(time: number) {
+    const statsOverlay = document.getElementById('debug-stats-overlay');
+    if (!statsOverlay || statsOverlay.classList.contains('hidden')) {
+      return; // only update when debug overlay is active
+    }
+
+    this.fpsFrames++;
+
+    if (this.fpsLastTime === 0) {
+      this.fpsLastTime = time;
+      return;
+    }
+
+    const frameTime = time - this.fpsLastTime;
+    this.fpsLastTime = time;
+
+    // Smooth update of values every 10 frames
+    if (this.fpsFrames % 10 === 0) {
+      const fps = Math.round(1000 / Math.max(1, frameTime));
+      const fpsValEl = document.getElementById('debug-fps-value');
+      const frameTimeValEl = document.getElementById('debug-frame-time-value');
+      
+      if (fpsValEl) {
+        fpsValEl.innerText = fps.toString();
+        if (fps >= 55) fpsValEl.style.color = '#64dd17';
+        else if (fps >= 30) fpsValEl.style.color = '#ffb300';
+        else fpsValEl.style.color = '#ef5350';
+      }
+      
+      if (frameTimeValEl) {
+        frameTimeValEl.innerText = `${frameTime.toFixed(1)} ms`;
+      }
+
+      this.fpsHistory.push(fps);
+      if (this.fpsHistory.length > this.maxFpsHistory) {
+        this.fpsHistory.shift();
+      }
+
+      // Draw FPS graph on canvas
+      const canvas = document.getElementById('debug-fps-canvas') as HTMLCanvasElement;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          // Draw 60/30 grid lines
+          ctx.strokeStyle = '#220a06';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          const y60 = canvas.height - (60 / 90) * canvas.height;
+          ctx.moveTo(0, y60);
+          ctx.lineTo(canvas.width, y60);
+          const y30 = canvas.height - (30 / 90) * canvas.height;
+          ctx.moveTo(0, y30);
+          ctx.lineTo(canvas.width, y30);
+          ctx.stroke();
+
+          // Draw graph path
+          ctx.strokeStyle = '#ef5350';
+          ctx.lineWidth = 2.0;
+          ctx.beginPath();
+
+          const colWidth = canvas.width / this.maxFpsHistory;
+          for (let i = 0; i < this.fpsHistory.length; i++) {
+            const hFps = Math.min(90, Math.max(0, this.fpsHistory[i]));
+            const x = i * colWidth;
+            const y = canvas.height - (hFps / 90) * canvas.height;
+            if (i === 0) {
+              ctx.moveTo(x, y);
+            } else {
+              ctx.lineTo(x, y);
+            }
+          }
+          ctx.stroke();
+
+          // Fill color underneath
+          if (this.fpsHistory.length > 0) {
+            ctx.fillStyle = 'rgba(239, 83, 80, 0.1)';
+            ctx.lineTo((this.fpsHistory.length - 1) * colWidth, canvas.height);
+            ctx.lineTo(0, canvas.height);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+      }
+    }
   }
 
   // Update card layouts in hand
@@ -1350,7 +1463,7 @@ export class RenderManager {
     } else if (this.activeView === 2) { // Felt board view - shifted down
       baseLocalY = -0.22;
       baseLocalZ = -0.24;
-    } else if (this.activeView === 3 || this.activeView === 5) { // Wheel / Opponent view - hidden completely
+    } else if (this.activeView === 3 || this.activeView === 5 || this.activeView === 6 || this.activeView === 7) { // Wheel / Opponent views - hidden completely
       baseLocalY = -0.6;
       baseLocalZ = -0.3;
     } else { // Overview (4) - resting at bottom
@@ -1442,8 +1555,8 @@ export class RenderManager {
 
   animate = (time: number) => {
     requestAnimationFrame(this.animate);
+    this.updateFpsStats(time);
     const sec = time * 0.001;
-    this.frameCount++;
 
     // Animate hanging light bulb sway
     if (this.bulbGroup) {
@@ -1498,7 +1611,6 @@ export class RenderManager {
     // 1. Rebuild wheels and boards on battle start
     if (isInBattle && !this.wasInBattle) {
       this.rebuildWheelsForCombat();
-      this.textureUploadFrames = 60;
     }
     this.wasInBattle = isInBattle;
 
@@ -1527,48 +1639,44 @@ export class RenderManager {
             fog: false
           });
         }
-        this.textureUploadFrames = 30;
       }
     }
 
     // 3. Rebuild wheels and boards on temporary card board modifications (combat)
     if (isInBattle && this.engine.battleState) {
-      const boardHash = JSON.stringify(this.engine.battleState.boardModifiers) + `|owner-${this.engine.battleState.activeWheelOwner}`;
+      const boardHash = JSON.stringify(this.engine.battleState.boardModifiers) + `|owner-${this.engine.battleState.activeWheelOwner}|pred-${JSON.stringify(this.engine.battleState.predictionSector || [])}`;
       if (boardHash !== this.lastBoardHash) {
         this.lastBoardHash = boardHash;
         this.rebuildWheelsForCombat();
-        this.textureUploadFrames = 30;
       }
-    }
-
-    // Trigger texture upload on active view changes
-    if (this.activeView !== this.lastActiveView) {
-      this.textureUploadFrames = 60;
-      this.lastActiveView = this.activeView;
-    }
-
-    // Failsafe: periodically force upload textures (every 180 frames)
-    if (this.frameCount % 180 === 0) {
-      this.textureUploadFrames = 30;
-    }
-
-    // 1. Force upload procedural canvas textures to GPU
-    if (this.textureUploadFrames > 0) {
-      this.scene.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          const mats = Array.isArray(child.material) ? child.material : [child.material];
-          mats.forEach((mat) => {
-            if (mat && (mat as any).map) {
-              (mat as any).map.needsUpdate = true;
-            }
-          });
-        }
-      });
-      this.textureUploadFrames--;
     }
 
     // Update animations of independent scene visual nodes
     this.enemyVis.update(sec);
+
+    // Active physics update tied to the requestAnimationFrame loop to ensure perfect sync
+    if (this.engine.battleState && this.engine.battleState.phase === 'spinning') {
+      const activePhysics = this.engine.physics;
+      const dt = Math.min(0.1, sec - this.lastPhysicsTime);
+      this.physicsAccumulator += dt;
+      
+      const fixedStep = 0.008; // 120Hz physics step
+      while (this.physicsAccumulator >= fixedStep) {
+        activePhysics.update(fixedStep);
+        this.physicsAccumulator -= fixedStep;
+        
+        if (activePhysics.isSettled) {
+          this.physicsAccumulator = 0;
+          if (this.onSpinSettled) {
+            const cb = this.onSpinSettled;
+            this.onSpinSettled = undefined;
+            cb();
+          }
+          break;
+        }
+      }
+    }
+    this.lastPhysicsTime = sec;
 
     // Physics sync: update player and enemy wheels
     this.wheelVis.update(
@@ -1607,7 +1715,7 @@ export class RenderManager {
         targetScale.set(0.50, 0.50, 0.50); // scale down in card view
       } else if (this.activeView === 2) {
         targetScale.set(0.35, 0.35, 0.35); // scale down in board view
-      } else if (this.activeView === 3 || this.activeView === 5) {
+      } else if (this.activeView === 3 || this.activeView === 5 || this.activeView === 6 || this.activeView === 7) {
         targetScale.set(0.01, 0.01, 0.01); // shrink to zero in wheel or opponent view
       } else if (this.activeView === 4) {
         targetScale.set(0.30, 0.30, 0.30); // scale down in overview view (reduced to 0.30)
@@ -1634,7 +1742,8 @@ export class RenderManager {
       const resOverlay = document.getElementById('resolution-overlay');
       const isSpinOverlayVisible = resOverlay && !resOverlay.classList.contains('hidden');
       if (this.engine.battleState.phase === 'spinning' || isSpinOverlayVisible) {
-        currentActiveView = 3; // Force Wheel View during active spin and outcome display
+        const isEnemy = this.engine.battleState?.activeWheelOwner === 'enemy';
+        currentActiveView = isEnemy ? 6 : 3; // Force Player Wheel (3) or Enemy Wheel (6) during active spin
       }
       this.activeView = currentActiveView;
 
@@ -1642,20 +1751,20 @@ export class RenderManager {
         this.cameraTargetPos.set(0, 0.8, 1.25);
         this.cameraTargetLookAt.set(0, 0.25, 0.8);
       } else if (this.activeView === 2) { // Board (focus on the player's board)
-        this.cameraTargetPos.set(-0.8, 1.5, 0.7);
-        this.cameraTargetLookAt.set(-0.8, 0.0, 0.45);
-      } else if (this.activeView === 3) { // Wheel (loosened zoom)
-        const isEnemy = this.engine.battleState?.activeWheelOwner === 'enemy';
-        if (isEnemy) {
-          this.cameraTargetPos.set(0.8, 1.25, -0.1);
-          this.cameraTargetLookAt.set(0.8, 0.05, -0.75);
-        } else {
-          this.cameraTargetPos.set(-0.8, 1.25, -0.1);
-          this.cameraTargetLookAt.set(-0.8, 0.05, -0.75);
-        }
+        this.cameraTargetPos.set(0.0, 1.5, 0.7);
+        this.cameraTargetLookAt.set(0.0, 0.0, 0.45);
+      } else if (this.activeView === 3) { // Player Wheel
+        this.cameraTargetPos.set(-0.8, 1.25, -0.1);
+        this.cameraTargetLookAt.set(-0.8, 0.05, -0.75);
+      } else if (this.activeView === 6) { // Enemy Wheel
+        this.cameraTargetPos.set(0.8, 1.25, -0.1);
+        this.cameraTargetLookAt.set(0.8, 0.05, -0.75);
       } else if (this.activeView === 5) { // Opponent Side (cinematic diagonal view of opponent and their board)
-        this.cameraTargetPos.set(-0.4, 1.25, -0.65);
-        this.cameraTargetLookAt.set(0.4, 0.1, -1.85);
+        this.cameraTargetPos.set(-0.4, 1.25, -1.15);
+        this.cameraTargetLookAt.set(0.0, 0.1, -1.95);
+      } else if (this.activeView === 7) { // Opponent Himself (direct face-to-face view of opponent mask and eyes)
+        this.cameraTargetPos.set(0.0, 1.6, -1.35);
+        this.cameraTargetLookAt.set(0.0, 1.6, -3.0);
       } else { // Overview (4)
         this.cameraTargetPos.set(0, 1.9, 1.5);
         this.cameraTargetLookAt.set(0, 0.1, -0.2);
@@ -1691,17 +1800,17 @@ export class RenderManager {
       if (progress < 0.2) {
         // Lift up & rotate
         const t = progress / 0.2;
-        this.oppActionCardMesh.position.set(0, 0.1 + t * 0.4, -1.6 + t * 0.2);
-        this.oppActionCardMesh.rotation.set(-Math.PI / 2 + t * (Math.PI / 2 + 0.1), Math.PI, 0);
+        this.oppActionCardMesh.position.set(0, 0.1 + t * 0.4, -2.62 + t * 0.2);
+        this.oppActionCardMesh.rotation.set(-Math.PI / 2 + t * (Math.PI / 2 + 0.1), Math.PI - t * Math.PI, 0);
       } else if (progress < 0.8) {
         // Hover
-        this.oppActionCardMesh.position.set(0, 0.5, -1.4);
-        this.oppActionCardMesh.rotation.set(0.1, Math.PI, 0);
+        this.oppActionCardMesh.position.set(0, 0.5, -2.42);
+        this.oppActionCardMesh.rotation.set(0.1, 0, 0);
       } else {
         // Sink/fade
         const t = (progress - 0.8) / 0.2;
-        this.oppActionCardMesh.position.set(0, 0.5 - t * 0.4, -1.4 - t * 0.2);
-        this.oppActionCardMesh.rotation.set(0.1 - t * (Math.PI / 2 + 0.1), Math.PI, 0);
+        this.oppActionCardMesh.position.set(0, 0.5 - t * 0.4, -2.42 - t * 0.2);
+        this.oppActionCardMesh.rotation.set(0.1 - t * (Math.PI / 2 + 0.1), t * Math.PI, 0);
       }
 
       if (this.oppAnimChips.length > 0) {
@@ -1714,7 +1823,7 @@ export class RenderManager {
           this.oppAnimChips.forEach((chip, i) => {
             const startX = 0.35;
             const startY = 0.005 + i * 0.007;
-            const startZ = -1.5;
+            const startZ = -2.5;
             
             const targetX = this.oppAnimChipsEnd.x;
             const targetY = this.oppAnimChipsEnd.y + i * 0.007;
@@ -1807,30 +1916,30 @@ export class RenderManager {
     const count5 = pool >= 5 ? Math.max(1, Math.min(6, Math.floor(pool / 5))) : 0;
     const count1 = pool >= 1 ? Math.max(1, Math.min(8, pool)) : 0;
 
-    // Stack of 10s (Gold/Number material) - Left: -0.377
+    // Stack of 10s (Gold/Number material) - Left: 0.423
     for (let j = 0; j < count10; j++) {
       const chip = new THREE.Mesh(chipGeo, this.chipMaterials.number);
-      chip.position.set(-0.377, 0.005 + j * 0.007 + 0.003, 0.90);
+      chip.position.set(0.423, 0.005 + j * 0.007 + 0.003, 0.90);
       chip.castShadow = true;
       chip.receiveShadow = true;
       chip.userData = { isSourceStack: true, denom: 10 };
       this.scene.add(chip);
       this.chipMeshes.push(chip);
     }
-    // Stack of 5s (Green material) - Middle: -0.27
+    // Stack of 5s (Green material) - Middle: 0.53
     for (let j = 0; j < count5; j++) {
       const chip = new THREE.Mesh(chipGeo, this.chipMaterials.green);
-      chip.position.set(-0.27, 0.005 + j * 0.007 + 0.003, 0.90);
+      chip.position.set(0.53, 0.005 + j * 0.007 + 0.003, 0.90);
       chip.castShadow = true;
       chip.receiveShadow = true;
       chip.userData = { isSourceStack: true, denom: 5 };
       this.scene.add(chip);
       this.chipMeshes.push(chip);
     }
-    // Stack of 1s (Red material) - Right: -0.163
+    // Stack of 1s (Red material) - Right: 0.637
     for (let j = 0; j < count1; j++) {
       const chip = new THREE.Mesh(chipGeo, this.chipMaterials.red);
-      chip.position.set(-0.163, 0.005 + j * 0.007 + 0.003, 0.90);
+      chip.position.set(0.637, 0.005 + j * 0.007 + 0.003, 0.90);
       chip.castShadow = true;
       chip.receiveShadow = true;
       chip.userData = { isSourceStack: true, denom: 1 };
@@ -1846,7 +1955,8 @@ export class RenderManager {
     const battle = this.engine.battleState;
     const isEnemy = battle && battle.activeWheelOwner === 'enemy';
     const activeWheel = battle ? (isEnemy ? battle.enemyWheel : battle.playerWheel) : this.engine.runState.playerWheel;
-    const boardCenterX = isEnemy ? 0.8 : -0.8;
+    const boardCenterX = 0.0;
+    const boardCenterZ = isEnemy ? -1.95 : 0.45;
     const boardWidth = 1.2;
 
     if (betType === 'red') {
@@ -1882,9 +1992,17 @@ export class RenderManager {
       }
     }
 
-    const lx = boardCenterX + (cx / 1024 - 0.5) * boardWidth;
-    const lz = (cy / 512 - 0.5) * 0.55;
+    let lx, lz;
+    if (isEnemy) {
+      // Enemy board is rotated 180 degrees to face the enemy
+      lx = boardCenterX - (cx / 1024 - 0.5) * boardWidth;
+      lz = -(cy / 512 - 0.5) * 0.55;
+    } else {
+      // Player board faces the player (normal)
+      lx = boardCenterX + (cx / 1024 - 0.5) * boardWidth;
+      lz = (cy / 512 - 0.5) * 0.55;
+    }
 
-    return new THREE.Vector3(lx, 0.005, 0.45 + lz);
+    return new THREE.Vector3(lx, 0.005, boardCenterZ + lz);
   }
 }

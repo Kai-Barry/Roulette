@@ -10,6 +10,11 @@ export const RED_NUMBERS = new Set([
 ]);
 
 export function initializeWheelColors(wheel: WheelConfig) {
+  if (wheel.id === 'custom') {
+    if (wheel.colors && Object.keys(wheel.colors).length > 0) {
+      return;
+    }
+  }
   wheel.colors = {};
   wheel.numbers.forEach(num => {
     if (wheel.greenNumbers.includes(num)) {
@@ -71,6 +76,16 @@ export const WHEEL_TEMPLATES: Record<string, WheelConfig> = {
     greenNumbers: [0, 18, 36],
     colors: {},
     payoutMultipliers: { red: 2, black: 2, green: 10, number: 36, odd: 2, even: 2 },
+    upgrades: []
+  },
+  custom: {
+    id: 'custom',
+    name: 'Custom Board Designer',
+    description: 'Create your own wheel from scratch. Customize slots, colors, and payouts.',
+    numbers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    greenNumbers: [0],
+    colors: {},
+    payoutMultipliers: { red: 2.0, black: 2.0, green: 10.0, number: 12.0, odd: 2.0, even: 2.0 },
     upgrades: []
   }
 };

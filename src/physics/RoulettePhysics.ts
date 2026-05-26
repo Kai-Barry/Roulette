@@ -9,19 +9,48 @@ export const RED_NUMBERS = new Set([
   1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36
 ]);
 
+const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31];
+
 export function getSlotColor(num: number, wheel?: WheelConfig, boardMods?: BoardModifiers): 'red' | 'black' | 'green' {
   if (boardMods) {
-    if (boardMods.convertNumbersToRed && boardMods.convertNumbersToRed.includes(num)) return 'red';
-    if (boardMods.convertNumbersToBlack && boardMods.convertNumbersToBlack.includes(num)) return 'black';
+    if ((boardMods as any).zeroEclipseActive && num === 0) {
+      return 'black';
+    }
+    if ((boardMods as any).emeraldForestActive && PRIMES.includes(num)) {
+      return 'green';
+    }
+    if (boardMods.extraGreenSlots && boardMods.extraGreenSlots > 3 && (num === 5 || num === 17 || num === 29)) {
+      return 'green';
+    }
+    if (boardMods.extraGreenSlots && boardMods.extraGreenSlots > 1 && (num === 11 || num === 22)) {
+      return 'green';
+    }
+    if (boardMods.convertNumbersToRed && boardMods.convertNumbersToRed.includes(num)) {
+      const baseColor = 'red';
+      return (boardMods as any).monochromeActive ? 'black' : baseColor;
+    }
+    if (boardMods.convertNumbersToBlack && boardMods.convertNumbersToBlack.includes(num)) {
+      const baseColor = 'black';
+      return (boardMods as any).monochromeActive ? 'red' : baseColor;
+    }
     if (boardMods.extraGreenSlots && boardMods.extraGreenSlots > 0 && num === 32) return 'green';
   }
   
+  let baseColor: 'red' | 'black' | 'green' = 'green';
   if (wheel && wheel.colors && wheel.colors[num] !== undefined) {
-    return wheel.colors[num];
+    baseColor = wheel.colors[num];
+  } else if (num === 0) {
+    baseColor = 'green';
+  } else {
+    baseColor = RED_NUMBERS.has(num) ? 'red' : 'black';
   }
 
-  if (num === 0) return 'green';
-  return RED_NUMBERS.has(num) ? 'red' : 'black';
+  if (boardMods && (boardMods as any).monochromeActive) {
+    if (baseColor === 'red') return 'black';
+    if (baseColor === 'black') return 'red';
+  }
+
+  return baseColor;
 }
 
 const DEFAULT_WHEEL: WheelConfig = {
@@ -61,6 +90,7 @@ export class RoulettePhysics {
   // Modifiers cached for the current spin
   private mods!: PhysicsModifiers;
   private biasTargetAngle = -1; // If biased, target angle in wheel space
+  private winningTargets: number[] = [];
   
   // Active wheel configuration
   wheelNumbers: number[] = WHEEL_NUMBERS;
@@ -77,12 +107,24 @@ export class RoulettePhysics {
         bounceRandomness: 0.1,
         wheelTilt: 0,
         targetZoneBias: 0,
+        predictionSize: 0,
+        nudgeCheatActive: false
       }
     );
   }
 
-  reset(wheel: WheelConfig, mods: PhysicsModifiers, winningTargets?: number[]) {
+  reset(
+    wheel: WheelConfig, 
+    mods: PhysicsModifiers, 
+    winningTargets?: number[],
+    seedWheelAngle?: number,
+    seedBallAngle?: number,
+    seedWheelSpeed?: number,
+    seedBallSpeed?: number,
+    boardMods?: BoardModifiers
+  ) {
     this.mods = mods;
+    this.winningTargets = winningTargets || [];
     this.wheelNumbers = wheel.numbers;
     this.slotCount = wheel.numbers.length;
     this.greenNumbers = wheel.greenNumbers;
@@ -94,21 +136,29 @@ export class RoulettePhysics {
     
     // Inject wheel and ball in opposite directions
     // Speed scales with mods.spinSpeed
-    const baseWheelSpeed = 2.0 + Math.random() * 1.5;
-    const baseBallSpeed = -10.0 - Math.random() * 5.0; // Negative means opposite direction
+    const baseWheelSpeed = seedWheelSpeed !== undefined ? seedWheelSpeed : (2.0 + Math.random() * 1.5);
+    const baseBallSpeed = seedBallSpeed !== undefined ? seedBallSpeed : (-10.0 - Math.random() * 5.0); // Negative means opposite direction
 
     this.wheelOmega = baseWheelSpeed * mods.spinSpeed;
     this.ballOmega = baseBallSpeed / Math.sqrt(mods.ballMass);
     
-    // Randomize initial positions
-    this.wheelAngle = Math.random() * Math.PI * 2;
-    this.ballAngle = Math.random() * Math.PI * 2;
+    // Randomize or seed initial positions
+    this.wheelAngle = seedWheelAngle !== undefined ? seedWheelAngle : (Math.random() * Math.PI * 2);
+    this.ballAngle = seedBallAngle !== undefined ? seedBallAngle : (Math.random() * Math.PI * 2);
 
     // Handle Bias (cheating physics)
     this.biasTargetAngle = -1;
-    if (mods.targetZoneBias > 0 && winningTargets && winningTargets.length > 0) {
+    let filteredWinningTargets = [...this.winningTargets];
+    if (mods.biasRedOnly) {
+      filteredWinningTargets = filteredWinningTargets.filter(num => getSlotColor(num, wheel, boardMods) === 'red');
+    }
+    if (mods.biasBlackOnly) {
+      filteredWinningTargets = filteredWinningTargets.filter(num => getSlotColor(num, wheel, boardMods) === 'black');
+    }
+
+    if (mods.targetZoneBias > 0 && filteredWinningTargets.length > 0) {
       // Pick one of the winning targets and find its slot position
-      const targetNum = winningTargets[Math.floor(Math.random() * winningTargets.length)];
+      const targetNum = filteredWinningTargets[Math.floor(Math.random() * filteredWinningTargets.length)];
       const slotIdx = this.wheelNumbers.indexOf(targetNum);
       if (slotIdx >= 0) {
         // Target angle on the wheel: index * (2pi/slotCount)
@@ -270,7 +320,35 @@ export class RoulettePhysics {
   }
 
   private settleInSlot(slotIdx: number) {
-    this.settledSlotIndex = (slotIdx + this.slotCount) % this.slotCount;
+    let finalSlotIdx = (slotIdx + this.slotCount) % this.slotCount;
+    
+    // Apply nudge cheat if active
+    if (this.mods.nudgeCheatActive && this.winningTargets.length > 0) {
+      const currentNum = this.wheelNumbers[finalSlotIdx];
+      if (!this.winningTargets.includes(currentNum)) {
+        const dist = (this.mods as any).nudgeDistance || 1;
+        let foundIdx = -1;
+        for (let d = 1; d <= dist; d++) {
+          const prevIdx = (finalSlotIdx - d + this.slotCount) % this.slotCount;
+          const prevNum = this.wheelNumbers[prevIdx];
+          if (this.winningTargets.includes(prevNum)) {
+            foundIdx = prevIdx;
+            break;
+          }
+          const nextIdx = (finalSlotIdx + d + this.slotCount) % this.slotCount;
+          const nextNum = this.wheelNumbers[nextIdx];
+          if (this.winningTargets.includes(nextNum)) {
+            foundIdx = nextIdx;
+            break;
+          }
+        }
+        if (foundIdx !== -1) {
+          finalSlotIdx = foundIdx;
+        }
+      }
+    }
+    
+    this.settledSlotIndex = finalSlotIdx;
     this.isSettled = true;
     this.phase = 'settled';
   }

@@ -251,22 +251,52 @@ export class CardVisual {
     const ctx = canvas.getContext('2d')!;
 
     // Draw card background
-    ctx.fillStyle = '#1e1610'; // Dark cardboard
+    if (card.rarity === 'legendary') {
+      const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+      grad.addColorStop(0, '#250830'); // Deep purple
+      grad.addColorStop(0.5, '#09020d'); // Obsidian black
+      grad.addColorStop(1, '#250830');
+      ctx.fillStyle = grad;
+    } else if (card.rarity === 'rare') {
+      const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+      grad.addColorStop(0, '#2d1b06');
+      grad.addColorStop(0.5, '#120b02');
+      grad.addColorStop(1, '#2d1b06');
+      ctx.fillStyle = grad;
+    } else if (card.rarity === 'uncommon') {
+      const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      grad.addColorStop(0, '#0c1520');
+      grad.addColorStop(1, '#05080c');
+      ctx.fillStyle = grad;
+    } else {
+      ctx.fillStyle = '#1e1610'; // Dark cardboard
+    }
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     // Draw border
-    ctx.strokeStyle = card.type === 'physics' ? '#64b5f6' : 
-                      card.type === 'board' ? '#81c784' : 
-                      card.type === 'payout' ? '#e57373' : '#ffd54f';
+    if (card.rarity === 'legendary') {
+      ctx.strokeStyle = '#ff5722'; // Fiery Orange-Red
+    } else if (card.rarity === 'rare') {
+      ctx.strokeStyle = '#ffd700'; // Pure Gold
+    } else if (card.rarity === 'uncommon') {
+      ctx.strokeStyle = '#4fc3f7'; // Neon Cyan
+    } else {
+      ctx.strokeStyle = card.type === 'physics' ? '#64b5f6' : 
+                        card.type === 'board' ? '#81c784' : 
+                        card.type === 'payout' ? '#e57373' : '#ffd54f';
+    }
     ctx.lineWidth = 12;
     ctx.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
     
     // Top header background
-    ctx.fillStyle = '#2d2218';
+    ctx.fillStyle = card.rarity === 'legendary' ? '#380a47' :
+                    card.rarity === 'rare' ? '#3d2b0e' :
+                    card.rarity === 'uncommon' ? '#122030' : '#2d2218';
     ctx.fillRect(12, 12, canvas.width - 24, 60);
 
     // Draw Cost
-    ctx.fillStyle = '#ffb300';
+    ctx.fillStyle = card.rarity === 'legendary' ? '#ff5722' :
+                    card.rarity === 'rare' ? '#ffd700' : '#ffb300';
     ctx.font = 'bold 24px Courier New';
     ctx.fillText(`${card.cost}⚡`, canvas.width - 60, 48);
 
@@ -275,17 +305,23 @@ export class CardVisual {
     ctx.font = 'bold 18px Courier New';
     ctx.fillText(card.name.substring(0, 16), 24, 48);
 
-    // Draw Type Label
-    ctx.fillStyle = '#aaaaaa';
-    ctx.font = 'italic 14px Courier New';
-    ctx.fillText(card.type.toUpperCase(), 24, 95);
+    // Draw Type & Rarity Label
+    ctx.fillStyle = card.rarity === 'legendary' ? '#ff5722' :
+                    card.rarity === 'rare' ? '#ffd700' :
+                    card.rarity === 'uncommon' ? '#4fc3f7' : '#aaaaaa';
+    ctx.font = 'bold italic 13px Courier New';
+    ctx.fillText(`${card.type.toUpperCase()} · ${card.rarity.toUpperCase()}`, 24, 95);
 
     // Draw Card Illustration placeholder
-    ctx.fillStyle = '#17110c';
+    ctx.fillStyle = card.rarity === 'legendary' ? '#1c0525' :
+                    card.rarity === 'rare' ? '#201608' :
+                    card.rarity === 'uncommon' ? '#0d131a' : '#17110c';
     ctx.fillRect(24, 110, canvas.width - 48, 110);
     
     // Draw simple geometric shapes representing card type
-    ctx.strokeStyle = ctx.strokeStyle = '#3e2f22';
+    ctx.strokeStyle = card.rarity === 'legendary' ? '#ff5722' :
+                      card.rarity === 'rare' ? '#ffd700' :
+                      card.rarity === 'uncommon' ? '#4fc3f7' : '#3e2f22';
     ctx.lineWidth = 4;
     ctx.strokeRect(30, 115, canvas.width - 60, 100);
     
@@ -301,11 +337,27 @@ export class CardVisual {
     } else if (card.type === 'payout') {
       // Draw skull/multiplier
       ctx.font = 'bold 36px Courier New';
-      ctx.fillStyle = '#e57373';
+      ctx.fillStyle = card.rarity === 'legendary' ? '#ff5722' :
+                      card.rarity === 'rare' ? '#ffd700' : '#e57373';
       ctx.fillText('x2.5', 90, 175);
     } else {
       // Utility gear/dice
       ctx.fillRect(108, 145, 40, 40);
+    }
+
+    // Add stars to illustration block for uncommon/rare/legendary
+    if (card.rarity === 'legendary') {
+      ctx.fillStyle = '#ff5722';
+      ctx.font = '16px Courier New';
+      ctx.fillText('★ ★ ★ ★', canvas.width - 100, 135);
+    } else if (card.rarity === 'rare') {
+      ctx.fillStyle = '#ffd700';
+      ctx.font = '16px Courier New';
+      ctx.fillText('★ ★ ★', canvas.width - 90, 135);
+    } else if (card.rarity === 'uncommon') {
+      ctx.fillStyle = '#4fc3f7';
+      ctx.font = '16px Courier New';
+      ctx.fillText('★ ★', canvas.width - 80, 135);
     }
 
     // Draw Description (Word wrapped)
@@ -336,8 +388,18 @@ export class CardVisual {
     const cardGeo = new THREE.BoxGeometry(0.11, 0.16, 0.002);
     
     // Materials: Front has canvas texture, back is wooden dark back, sides are cardboard gray
-    const backMat = new THREE.MeshBasicMaterial({ color: 0x2d1a12, fog: false });
-    const sideMat = new THREE.MeshBasicMaterial({ color: 0x5c4033, fog: false });
+    const backMat = new THREE.MeshBasicMaterial({ 
+      color: card.rarity === 'legendary' ? 0x20072c :
+             card.rarity === 'rare' ? 0x3d2708 :
+             card.rarity === 'uncommon' ? 0x0f1821 : 0x2d1a12, 
+      fog: false 
+    });
+    const sideMat = new THREE.MeshBasicMaterial({ 
+      color: card.rarity === 'legendary' ? 0xb53c14 :
+             card.rarity === 'rare' ? 0x8c6d13 :
+             card.rarity === 'uncommon' ? 0x224252 : 0x5c4033, 
+      fog: false 
+    });
     const frontMat = new THREE.MeshBasicMaterial({ 
       map: texture,
       fog: false
@@ -381,7 +443,7 @@ export class EnemyVisual {
 
   private buildEnemy() {
     // 1. Shrouded Robe/Torso (Pyramid shape)
-    const bodyGeo = new THREE.ConeGeometry(0.8, 1.8, 4);
+    const bodyGeo = new THREE.ConeGeometry(0.4, 1.8, 4);
     const bodyMat = new THREE.MeshPhongMaterial({
       color: 0x222222, // Lighter black robe
       shininess: 10
