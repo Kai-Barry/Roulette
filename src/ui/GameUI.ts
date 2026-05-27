@@ -22,8 +22,8 @@ export class GameUI {
   private isEnemyResolutionReport = false;
 
   // Shop state (cached shop offerings for current floor)
-  private shopCards: { cardId: string; name: string; cost: number; desc: string; rarity: string; type: string }[] = [];
-  private activeShopTab: 'cards' | 'upgrades' = 'cards';
+  public shopCards: { cardId: string; name: string; cost: number; desc: string; rarity: string; type: string }[] = [];
+  public activeShopTab: 'cards' | 'upgrades' = 'cards';
 
   // Codex filter state
   private codexRarityFilter = 'all';
@@ -60,10 +60,187 @@ export class GameUI {
   // View state tracking
   private currentView = 4;
   public onViewChanged?: (viewId: number) => void;
-  private renderer: any = null;
+  public renderer: any = null;
 
   public setRenderer(renderer: any) {
     this.renderer = renderer;
+    renderer.ui = this;
+  }
+
+  public purchaseShopCard(idx: number): boolean {
+    const state = this.engine.runState;
+    if (idx === 999) { // Healing option
+      const healCost = 12;
+      if (this.engine.healInShop(25, healCost)) {
+        this.sound.playDraw();
+        this.render();
+        return true;
+      }
+      return false;
+    }
+    const item = this.shopCards[idx];
+    if (!item) return false;
+    if (this.engine.buyCardInShop(item.cardId, item.cost)) {
+      this.sound.playDraw();
+      this.shopCards.splice(idx, 1);
+      this.render();
+      return true;
+    }
+    return false;
+  }
+
+  public purchaseBoardUpgrade(id: string): boolean {
+    if (this.engine.buyBoardUpgrade(id)) {
+      this.sound.playDraw();
+      this.render();
+      return true;
+    }
+    return false;
+  }
+
+  public makeEventChoice(choice: string) {
+    const state = this.engine.runState;
+    this.sound.playDraw();
+
+    if (choice === '1') {
+      state.hp = Math.max(1, state.hp - 8);
+      state.chips += 25;
+    } else if (choice === '2') {
+      const card = CARD_DATABASE['magnetic_force'];
+      state.deck.push({
+        id: `magnetic_force_${Math.random()}`,
+        name: card.name,
+        description: card.description,
+        cost: card.cost,
+        type: card.type,
+        rarity: card.rarity,
+        effectId: card.effectId
+      });
+    }
+
+    // Return to map and mark floor progression
+    const floor = state.currentFloor;
+    const floorNodes = state.mapNodes[floor];
+    const node = floorNodes.find(n => n.id === state.currentNodeId);
+    if (node) node.completed = true;
+    
+    state.currentFloor += 1;
+    state.gameState = 'MAP';
+    this.render();
+  }
+
+  public updateShopDescriptionBox() {
+    const descBox = this.root.querySelector('#shop-card-desc-box') as HTMLElement;
+    const confirmBtn = this.root.querySelector('#shop-confirm-buy-btn') as HTMLButtonElement;
+    if (!descBox || !confirmBtn) return;
+
+    const renderer = this.renderer;
+    if (!renderer || renderer.selectedShopItemId === null) {
+      descBox.innerHTML = `
+        <div class="shop-desc-title">NO ITEM SELECTED</div>
+        <div class="shop-desc-text">Click a card or upgrade to inspect it.</div>
+        <div class="shop-desc-hint">Select an item to purchase</div>
+      `;
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'CONFIRM PURCHASE';
+      return;
+    }
+
+    const itemId = renderer.selectedShopItemId;
+    const activeTab = this.activeShopTab;
+    const state = this.engine.runState;
+
+    if (activeTab === 'cards') {
+      if (itemId === '999') {
+        const healCost = 12;
+        const canAfford = state.chips >= healCost && state.hp < state.maxHp;
+        const isFull = state.hp >= state.maxHp;
+        descBox.innerHTML = `
+          <div class="shop-desc-title">BLOOD INFUSION</div>
+          <div class="shop-desc-text">Transfuse essence back into your veins. Heals 25 HP.</div>
+          <div class="shop-desc-hint">Cost: ${healCost} ⚡ · ${isFull ? 'Already Full HP' : canAfford ? 'Click Bell or Confirm Button to Buy' : 'Cannot Afford'}</div>
+        `;
+        confirmBtn.disabled = !canAfford;
+        confirmBtn.textContent = `BUY HEAL: ${healCost} ⚡`;
+      } else {
+        const idx = parseInt(itemId);
+        const item = this.shopCards[idx];
+        if (item) {
+          const canAfford = state.chips >= item.cost;
+          descBox.innerHTML = `
+            <div class="shop-desc-title">${item.name.toUpperCase()}</div>
+            <div class="shop-desc-text">${item.desc}</div>
+            <div class="shop-desc-hint">Rarity: ${item.rarity.toUpperCase()} · Cost: ${item.cost} ⚡ | ${canAfford ? 'Click Bell or Confirm Button to Buy' : 'Cannot Afford'}</div>
+          `;
+          confirmBtn.disabled = !canAfford;
+          confirmBtn.textContent = `BUY CARD: ${item.cost} ⚡`;
+        } else {
+          renderer.selectedShopItemId = null;
+          this.updateShopDescriptionBox();
+        }
+      }
+    } else {
+      const upgrade = BOARD_UPGRADES[itemId];
+      if (upgrade) {
+        const isOwned = state.playerWheel.upgrades.includes(itemId);
+        const canAfford = state.chips >= upgrade.cost && !isOwned;
+        descBox.innerHTML = `
+          <div class="shop-desc-title">${upgrade.name.toUpperCase()}</div>
+          <div class="shop-desc-text">${upgrade.description}</div>
+          <div class="shop-desc-hint">Cost: ${upgrade.cost} ⚡ · ${isOwned ? 'OWNED' : canAfford ? 'Click Bell or Confirm to Buy' : 'Cannot Afford'}</div>
+        `;
+        confirmBtn.disabled = !canAfford;
+        confirmBtn.textContent = isOwned ? 'OWNED' : `BUY UPGRADE: ${upgrade.cost} ⚡`;
+      } else {
+        renderer.selectedShopItemId = null;
+        this.updateShopDescriptionBox();
+      }
+    }
+  }
+
+  public updateEventDescriptionBox() {
+    const descBox = this.root.querySelector('#event-desc-box') as HTMLElement;
+    const confirmBtn = this.root.querySelector('#event-confirm-choice-btn') as HTMLButtonElement;
+    if (!descBox || !confirmBtn) return;
+
+    const renderer = this.renderer;
+    if (!renderer || renderer.selectedEventChoiceId === null) {
+      descBox.innerHTML = `
+        <div class="event-desc-title">NO TABLET SELECTED</div>
+        <div class="event-desc-text">Click a floating stone tablet to inspect.</div>
+        <div class="event-desc-hint">Select a choice to proceed</div>
+      `;
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'CONFIRM DECISION';
+      return;
+    }
+
+    const choiceId = renderer.selectedEventChoiceId;
+    let title = '';
+    let desc = '';
+    let hint = '';
+
+    if (choiceId === '1') {
+      title = 'INJECT SYRINGE';
+      desc = 'Transfuse a high-concentration dose of volatile essence directly into your bloodstream. Risk of rupture is high, but the resource yield is substantial.';
+      hint = 'Consequence: Lose 8 HP (Blood) · Gain 25 chips (Essence) | Click tablet again or Confirm to accept';
+    } else if (choiceId === '2') {
+      title = 'ACCEPT MAGNET';
+      desc = 'Draw a heavy iron lodging stone. Induces strong magnetic attractors inside the wheel slot channels to draw the ball towards copper pockets.';
+      hint = 'Consequence: Add Lodestone Magnet card to deck | Click tablet again or Confirm to accept';
+    } else if (choiceId === '3') {
+      title = 'DECLINE & PASS';
+      desc = 'Refuse the transaction and ignore the hooded figure. Push past them. A safe path, devoid of both reward and harm.';
+      hint = 'Consequence: Gain nothing, lose nothing | Click tablet again or Confirm to accept';
+    }
+
+    descBox.innerHTML = `
+      <div class="event-desc-title">${title}</div>
+      <div class="event-desc-text">${desc}</div>
+      <div class="event-desc-hint">${hint}</div>
+    `;
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = `CONFIRM: ${title}`;
   }
 
 
@@ -130,6 +307,13 @@ export class GameUI {
             <!-- Group: COMBAT STATS -->
             <div class="dev-group">
               <div class="dev-group-title">Combat Cheats</div>
+              <div class="dev-row" style="margin-bottom: 6px;">
+                <span style="font-size: 11px; color: #ffaa00; flex: 1; align-self: center;">Mode:</span>
+                <select id="dev-combat-mode-select" class="dev-select" style="flex: 2; height: 22px; font-size: 11px;">
+                  <option value="points">Points Duel</option>
+                  <option value="damage">HP Damage</option>
+                </select>
+              </div>
               <div class="dev-row">
                 <button id="dev-kill-enemy" class="btn">Finish Opponent</button>
               </div>
@@ -367,17 +551,19 @@ export class GameUI {
 
           <!-- PANEL: SHOP -->
           <div id="shop-panel" class="panel hidden">
-            <h2 class="panel-header text-gold">THE CROUPIER'S SHOP</h2>
-            <p class="shop-welcome">"Spend your essence wisely, mortal. Or bleed for it..."</p>
-            
-            <!-- Shop Tabs -->
-            <div class="shop-tabs-bar">
-              <button id="shop-tab-cards" class="shop-tab-btn active">CARDS & HEAL</button>
-              <button id="shop-tab-upgrades" class="shop-tab-btn">BOARD UPGRADES</button>
+            <div class="shop-header-panel">
+              <h2>THE CROUPIER'S SHOP</h2>
+              <p class="shop-welcome">"Spend your essence wisely, mortal. Or bleed for it..."</p>
+              
+              <!-- Shop Tabs -->
+              <div class="shop-tabs-bar">
+                <button id="shop-tab-cards" class="shop-tab-btn active">CARDS & HEAL</button>
+                <button id="shop-tab-upgrades" class="shop-tab-btn">BOARD UPGRADES</button>
+              </div>
             </div>
 
-            <!-- Tab View Panels -->
-            <div id="shop-cards-view" class="shop-view-panel">
+            <!-- Tab View Panels (hidden, but populated in JS) -->
+            <div id="shop-cards-view" class="shop-view-panel hidden">
               <div id="shop-items-container" class="shop-grid"></div>
             </div>
             
@@ -385,17 +571,30 @@ export class GameUI {
               <div id="shop-upgrades-container" class="shop-grid"></div>
             </div>
 
-            <div class="shop-actions">
-              <button id="shop-leave-btn" class="btn secondary-btn">RETURN TO PATHS</button>
+            <div class="shop-bottom-hud">
+              <div id="shop-card-desc-box" class="shop-card-desc-box"></div>
+              <div class="shop-actions-row">
+                <button id="shop-confirm-buy-btn" class="btn primary-btn" disabled>CONFIRM PURCHASE</button>
+                <button id="shop-leave-btn" class="btn secondary-btn">RETURN TO PATHS</button>
+              </div>
             </div>
           </div>
 
           <!-- PANEL: EVENT -->
           <div id="event-panel" class="panel hidden">
-            <h2 id="event-title" class="panel-header">A DARK ENCOUNTER</h2>
-            <div class="event-body">
+            <div class="event-header-panel">
+              <h2 id="event-title">A DARK ENCOUNTER</h2>
               <p id="event-text" class="event-narrative"></p>
-              <div id="event-options" class="event-choices-list"></div>
+            </div>
+            
+            <!-- Hidden choice triggers (drawn in 3D now) -->
+            <div id="event-options" class="event-choices-list hidden"></div>
+
+            <div class="event-bottom-hud">
+              <div id="event-desc-box" class="event-desc-box"></div>
+              <div class="event-actions-row">
+                <button id="event-confirm-choice-btn" class="btn primary-btn" disabled>CONFIRM DECISION</button>
+              </div>
             </div>
           </div>
 
@@ -642,6 +841,9 @@ export class GameUI {
     const shopLeaveBtn = this.root.querySelector('#shop-leave-btn');
     shopLeaveBtn?.addEventListener('click', () => {
       this.sound.playCardSwoosh();
+      if (this.renderer) {
+        this.renderer.selectedShopItemId = null;
+      }
       
       const state = this.engine.runState;
       const floor = state.currentFloor;
@@ -657,6 +859,34 @@ export class GameUI {
       this.render();
     });
 
+    // Shop Confirm Buy click handler
+    const shopConfirmBuyBtn = this.root.querySelector('#shop-confirm-buy-btn');
+    shopConfirmBuyBtn?.addEventListener('click', () => {
+      if (!this.renderer || this.renderer.selectedShopItemId === null) return;
+      const itemId = this.renderer.selectedShopItemId;
+      const activeTab = this.activeShopTab;
+      let success = false;
+      if (activeTab === 'cards') {
+        const idx = parseInt(itemId);
+        success = this.purchaseShopCard(idx);
+      } else {
+        success = this.purchaseBoardUpgrade(itemId);
+      }
+      if (success) {
+        this.renderer.selectedShopItemId = null;
+        this.updateShopDescriptionBox();
+      }
+    });
+
+    // Event Confirm Choice click handler
+    const eventConfirmChoiceBtn = this.root.querySelector('#event-confirm-choice-btn');
+    eventConfirmChoiceBtn?.addEventListener('click', () => {
+      if (!this.renderer || this.renderer.selectedEventChoiceId === null) return;
+      const choiceId = this.renderer.selectedEventChoiceId;
+      this.makeEventChoice(choiceId);
+      this.renderer.selectedEventChoiceId = null;
+    });
+
     // Shop Tabs click handlers
     const tabCards = this.root.querySelector('#shop-tab-cards');
     const tabUpgrades = this.root.querySelector('#shop-tab-upgrades');
@@ -664,12 +894,18 @@ export class GameUI {
       if (this.activeShopTab === 'cards') return;
       this.sound.playDraw();
       this.activeShopTab = 'cards';
+      if (this.renderer) {
+        this.renderer.selectedShopItemId = null;
+      }
       this.render();
     });
     tabUpgrades?.addEventListener('click', () => {
       if (this.activeShopTab === 'upgrades') return;
       this.sound.playDraw();
       this.activeShopTab = 'upgrades';
+      if (this.renderer) {
+        this.renderer.selectedShopItemId = null;
+      }
       this.render();
     });
 
@@ -763,6 +999,14 @@ export class GameUI {
           (devToolsBtn as HTMLElement).style.color = '#888';
         }
       }
+    });
+
+    // Dev tools combat mode binding
+    const devCombatModeSelect = this.root.querySelector('#dev-combat-mode-select') as HTMLSelectElement;
+    devCombatModeSelect?.addEventListener('change', () => {
+      this.engine.runState.combatMode = devCombatModeSelect.value as 'points' | 'damage';
+      this.sound.playDraw();
+      this.render();
     });
 
     // Dev tools button bindings
@@ -952,7 +1196,8 @@ export class GameUI {
 
       if (!this.isEnemyResolutionReport) {
         // Player spin continue
-        if (this.engine.battleState.enemy.hp <= 0) {
+        const isPointsMode = this.engine.runState.combatMode === 'points';
+        if (!isPointsMode && this.engine.battleState.enemy.hp <= 0) {
           this.engine.resolveEnemyTurn();
           this.render();
         } else {
@@ -1186,15 +1431,28 @@ export class GameUI {
     else badge.classList.add('green-bg');
 
     // 2. Populate Summary text
+    const isPointsMode = this.engine.runState.combatMode === 'points';
     if (!isEnemy) {
       if (res.damageDealt > 0) {
-        summary.innerHTML = `<span class="text-green" style="font-size: 22px; text-shadow: 0 0 10px rgba(0, 255, 0, 0.4);">HIT! YOU DEALT ${res.damageDealt} DAMAGE!</span>`;
+        if (isPointsMode) {
+          summary.innerHTML = `<span class="text-green" style="font-size: 22px; text-shadow: 0 0 10px rgba(0, 255, 0, 0.4);">HIT! YOU SCORED ${res.damageDealt} POINTS!</span>`;
+        } else {
+          summary.innerHTML = `<span class="text-green" style="font-size: 22px; text-shadow: 0 0 10px rgba(0, 255, 0, 0.4);">HIT! YOU DEALT ${res.damageDealt} DAMAGE!</span>`;
+        }
       } else {
-        summary.innerHTML = `<span class="text-red" style="font-size: 18px;">MISS! NO DAMAGE DEALT.</span>`;
+        if (isPointsMode) {
+          summary.innerHTML = `<span class="text-red" style="font-size: 18px;">MISS! NO POINTS SCORED.</span>`;
+        } else {
+          summary.innerHTML = `<span class="text-red" style="font-size: 18px;">MISS! NO DAMAGE DEALT.</span>`;
+        }
       }
     } else {
       if (res.playerDamageTaken > 0) {
-        summary.innerHTML = `<span class="text-red" style="font-size: 22px; text-shadow: 0 0 10px rgba(255, 0, 0, 0.4);">HIT! YOU TOOK ${res.playerDamageTaken} DAMAGE!</span>`;
+        if (isPointsMode) {
+          summary.innerHTML = `<span class="text-red" style="font-size: 22px; text-shadow: 0 0 10px rgba(255, 0, 0, 0.4);">HIT! OPPONENT SCORED ${res.playerDamageTaken} PTS!</span>`;
+        } else {
+          summary.innerHTML = `<span class="text-red" style="font-size: 22px; text-shadow: 0 0 10px rgba(255, 0, 0, 0.4);">HIT! YOU TOOK ${res.playerDamageTaken} DAMAGE!</span>`;
+        }
       } else {
         const intent = battle.enemy.intent;
         if (intent.type === 'steal_chips') {
@@ -1202,9 +1460,18 @@ export class GameUI {
         } else if (intent.type === 'physics_debuff') {
           summary.innerHTML = `<span class="text-red" style="font-size: 18px;">DEBUFF! WHEEL FRICTION WAS DOUBLED!</span>`;
         } else {
-          summary.innerHTML = `<span class="text-green" style="font-size: 18px;">MISS! NO DAMAGE TAKEN.</span>`;
+          if (isPointsMode) {
+            summary.innerHTML = `<span class="text-green" style="font-size: 18px;">MISS! NO POINTS SCORED.</span>`;
+          } else {
+            summary.innerHTML = `<span class="text-green" style="font-size: 18px;">MISS! NO DAMAGE TAKEN.</span>`;
+          }
         }
       }
+    }
+
+    // Append slot color special effect notification if it triggered
+    if (res.slotEffect) {
+      summary.innerHTML += `<div class="slot-effect-banner ${res.color}" style="margin-top: 10px; font-size: 12px; font-weight: bold; border-radius: 4px; padding: 4px 10px;">${res.slotEffect}</div>`;
     }
 
     // 3. Populate Bets Detail list
@@ -1233,7 +1500,12 @@ export class GameUI {
 
         if (isWin) {
           const payoutVal = bet.amount * mult;
-          const targetText = !isEnemy ? `DEALT ${payoutVal} DMG` : `TOOK ${payoutVal} DMG`;
+          let targetText = '';
+          if (isPointsMode) {
+            targetText = !isEnemy ? `SCORED ${payoutVal} PTS` : `OPPONENT SCORED ${payoutVal} PTS`;
+          } else {
+            targetText = !isEnemy ? `DEALT ${payoutVal} DMG` : `TOOK ${payoutVal} DMG`;
+          }
           return `
             <div class="res-details-item">
               <span>${label} (${bet.amount} ⚡)</span>
@@ -1405,6 +1677,10 @@ export class GameUI {
       combatElements.forEach(el => {
         el.disabled = !isCombat;
       });
+      const devCombatModeSelect = devToolsPanel.querySelector('#dev-combat-mode-select') as HTMLSelectElement;
+      if (devCombatModeSelect) {
+        devCombatModeSelect.value = state.combatMode || 'points';
+      }
     }
   }
 
@@ -1683,6 +1959,9 @@ export class GameUI {
     } else {
       this.renderShopUpgrades();
     }
+
+    // 3. Update selection details description box
+    this.updateShopDescriptionBox();
   }
 
   private renderShopCards() {
@@ -1771,6 +2050,12 @@ export class GameUI {
         this.render();
       }
     });
+
+    // Hide HTML items view container to rely on 3D view
+    container.classList.add('hidden');
+    if (this.renderer) {
+      this.renderer.syncShopItems();
+    }
   }
 
   private renderShopUpgrades() {
@@ -1818,6 +2103,12 @@ export class GameUI {
         }
       });
     });
+
+    // Hide HTML upgrades view container to rely on 3D view
+    container.classList.add('hidden');
+    if (this.renderer) {
+      this.renderer.syncShopItems();
+    }
   }
 
   private renderLoadoutStore() {
@@ -2159,7 +2450,6 @@ export class GameUI {
     });
   }
 
-  // Event Panel Generator (Text choices)
   private renderEvent() {
     const titleEl = this.root.querySelector('#event-title')!;
     const textEl = this.root.querySelector('#event-text')!;
@@ -2190,36 +2480,18 @@ export class GameUI {
     choiceBtns.forEach(btn => {
       btn.addEventListener('click', () => {
         const choice = btn.getAttribute('data-choice')!;
-        this.sound.playDraw();
-
-        if (choice === '1') {
-          state.hp = Math.max(1, state.hp - 8);
-          state.chips += 25;
-        } else if (choice === '2') {
-          // Add Magnet
-          const card = CARD_DATABASE['magnetic_force'];
-          state.deck.push({
-            id: `magnetic_force_${Math.random()}`,
-            name: card.name,
-            description: card.description,
-            cost: card.cost,
-            type: card.type,
-            rarity: card.rarity,
-            effectId: card.effectId
-          });
-        }
-
-        // Return to map and mark floor progression
-        const floor = state.currentFloor;
-        const floorNodes = state.mapNodes[floor];
-        const node = floorNodes.find(n => n.id === state.currentNodeId);
-        if (node) node.completed = true;
-        
-        state.currentFloor += 1;
-        state.gameState = 'MAP';
-        this.render();
+        this.makeEventChoice(choice);
       });
     });
+
+    // Hide HTML choices list to rely on 3D tablets
+    choicesContainer.classList.add('hidden');
+    if (this.renderer) {
+      this.renderer.syncEventChoices();
+    }
+
+    // Update selection details description box
+    this.updateEventDescriptionBox();
   }
 
   // Combat State Panel Generator
@@ -2227,16 +2499,52 @@ export class GameUI {
     const battle = this.engine.battleState;
     if (!battle) return;
 
-    // Update Enemy details
-    const enemyName = this.root.querySelector('#enemy-name') as HTMLElement;
-    const enemyHpBar = this.root.querySelector('#enemy-hp-bar') as HTMLElement;
-    const enemyHpText = this.root.querySelector('#enemy-hp-text') as HTMLElement;
-    const enemyIntentText = this.root.querySelector('#enemy-intent-text') as HTMLElement;
-
-    if (enemyName) enemyName.innerText = battle.enemy.name;
-    if (enemyHpBar) enemyHpBar.style.width = `${(battle.enemy.hp / battle.enemy.maxHp) * 100}%`;
-    if (enemyHpText) enemyHpText.innerText = `${battle.enemy.hp} / ${battle.enemy.maxHp}`;
-    if (enemyIntentText) enemyIntentText.innerText = battle.enemy.intent.description;
+    // Update Enemy details (Scoreboard or HP bar)
+    const isPointsMode = this.engine.runState.combatMode === 'points';
+    const enemyHud = this.root.querySelector('.enemy-hud') as HTMLElement;
+    if (enemyHud) {
+      if (isPointsMode) {
+        enemyHud.innerHTML = `
+          <div class="scoreboard-container">
+            <div class="scoreboard-header">
+              <h3 id="enemy-name" class="enemy-title" style="margin: 0; font-size: 15px;">${battle.enemy.name}</h3>
+              <div class="enemy-intent" style="margin-top: 2px;">
+                <span class="intent-label" style="font-size: 8px;">INTENT:</span>
+                <span id="enemy-intent-text" class="intent-desc" style="font-size: 11px;">${battle.enemy.intent.description}</span>
+              </div>
+            </div>
+            <div class="scoreboard-rounds">
+              <span class="rounds-label">ROUND</span>
+              <span class="rounds-value">${battle.turn} / ${battle.maxRounds || 6}</span>
+              ${battle.isSuddenDeath ? '<div class="sudden-death-glow pulse-fast">SUDDEN DEATH</div>' : ''}
+            </div>
+            <div class="scoreboard-scores">
+              <div class="score-box player-score-box">
+                <span class="score-label">PLAYER</span>
+                <span class="score-value">${battle.playerScore || 0}</span>
+              </div>
+              <div class="score-box vs-box">VS</div>
+              <div class="score-box enemy-score-box">
+                <span class="score-label">ENEMY</span>
+                <span class="score-value">${battle.enemyScore || 0}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      } else {
+        enemyHud.innerHTML = `
+          <h3 id="enemy-name" class="enemy-title">${battle.enemy.name}</h3>
+          <div class="bar-container enemy-hp-container">
+            <div id="enemy-hp-bar" class="bar hp-bar" style="width: ${(battle.enemy.hp / battle.enemy.maxHp) * 100}%"></div>
+            <span id="enemy-hp-text" class="bar-text">${battle.enemy.hp} / ${battle.enemy.maxHp}</span>
+          </div>
+          <div class="enemy-intent">
+            <span class="intent-label">INTENT:</span>
+            <span id="enemy-intent-text" class="intent-desc">${battle.enemy.intent.description}</span>
+          </div>
+        `;
+      }
+    }
 
     // Update chips display
     const turnChipsVal = this.root.querySelector('#turn-chips-value') as HTMLElement;

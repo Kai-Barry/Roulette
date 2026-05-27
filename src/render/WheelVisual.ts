@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Card, Enemy, WheelConfig, PhysicsModifiers, ForgeCard } from '../core/Types';
+import { Card, Enemy, WheelConfig, PhysicsModifiers, ForgeCard, BoardUpgrade } from '../core/Types';
 import { getSlotColor, WHEEL_NUMBERS } from '../physics/RoulettePhysics';
 
 export class WheelVisual {
@@ -661,47 +661,110 @@ export class EnemyVisual {
   head!: THREE.Mesh;
   leftEye!: THREE.Mesh;
   rightEye!: THREE.Mesh;
+  private currentSpriteName: string = '';
   
   constructor() {
     this.group = new THREE.Group();
-    this.buildEnemy();
+    this.rebuildEnemy('gambler');
   }
 
-  private buildEnemy() {
-    // 1. Shrouded Robe/Torso (Pyramid shape)
-    const bodyGeo = new THREE.ConeGeometry(0.4, 1.8, 4);
+  public rebuildEnemy(spriteName: string) {
+    if (this.currentSpriteName === spriteName && this.group.children.length > 0) return;
+    this.currentSpriteName = spriteName;
+
+    // Clear existing children from group
+    while (this.group.children.length > 0) {
+      const child = this.group.children[0] as THREE.Mesh;
+      this.group.remove(child);
+      if (child.geometry) child.geometry.dispose();
+      if (Array.isArray(child.material)) {
+        child.material.forEach(m => m.dispose());
+      } else if (child.material) {
+        child.material.dispose();
+      }
+    }
+
+    // Set colors based on opponent identity
+    let bodyColor = 0x222222;
+    let headColor = 0xeee3e7;
+    let eyeColor = 0xff0000;
+    let headShape: 'box' | 'cylinder' | 'sphere' = 'box';
+    let robeShape: 'cone' | 'cylinder' = 'cone';
+    let metalness = 0.0;
+    let roughness = 0.8;
+
+    if (spriteName === 'decay_wheel') {
+      bodyColor = 0x3e4a35;
+      headColor = 0x7d8c77;
+      eyeColor = 0x00ff44;
+      headShape = 'sphere';
+    } else if (spriteName === 'croupier') {
+      bodyColor = 0x1a1a1a;
+      headColor = 0xeee3e7;
+      eyeColor = 0x990000;
+      headShape = 'box';
+    } else if (spriteName === 'wraith') {
+      bodyColor = 0x5e0f13;
+      headColor = 0xa8222a;
+      eyeColor = 0xffffff;
+      headShape = 'cylinder';
+    } else if (spriteName === 'dealer_claw') {
+      bodyColor = 0x3e185e; // purple robe
+      headColor = 0xffd700; // shiny gold mask
+      eyeColor = 0x00ffff; // neon cyan eyes
+      headShape = 'box';
+      metalness = 0.85;
+      roughness = 0.3;
+    } else if (spriteName === 'the_house') {
+      bodyColor = 0x0c0c0d; // giant void black robe
+      headColor = 0x111111; // dark charcoal bone
+      eyeColor = 0xff4400; // blazing orange eyes
+      headShape = 'box';
+    }
+
+    // 1. Shrouded Robe/Torso
+    const bodyGeo = robeShape === 'cone' ? new THREE.ConeGeometry(0.4, 1.8, 4) : new THREE.CylinderGeometry(0.3, 0.4, 1.8, 6);
     const bodyMat = new THREE.MeshPhongMaterial({
-      color: 0x222222, // Lighter black robe
-      shininess: 10
+      color: bodyColor,
+      shininess: metalness > 0 ? 50 : 10
     });
     const body = new THREE.Mesh(bodyGeo, bodyMat);
     body.position.y = 0.9;
-    body.rotation.y = Math.PI / 4; // rotate to make front face flat
+    body.rotation.y = Math.PI / 4;
     body.castShadow = true;
     body.receiveShadow = true;
     this.group.add(body);
 
-    // 2. Neck (Cylinder)
+    // 2. Neck
     const neckGeo = new THREE.CylinderGeometry(0.12, 0.15, 0.25, 6);
     const neckMat = new THREE.MeshPhongMaterial({ color: 0x333333, shininess: 10 });
     const neck = new THREE.Mesh(neckGeo, neckMat);
     neck.position.y = 1.8;
     this.group.add(neck);
 
-    // 3. Head - A creepy low-poly geometric mask/skull
-    const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-    const headMat = new THREE.MeshPhongMaterial({
-      color: 0xeee3e7, // Brighter pale bone white
-      shininess: 30
+    // 3. Head
+    let headGeo: THREE.BufferGeometry;
+    if (headShape === 'sphere') {
+      headGeo = new THREE.SphereGeometry(0.26, 6, 6);
+    } else if (headShape === 'cylinder') {
+      headGeo = new THREE.CylinderGeometry(0.2, 0.24, 0.5, 6);
+    } else {
+      headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    }
+
+    const headMat = new THREE.MeshStandardMaterial({
+      color: headColor,
+      metalness: metalness,
+      roughness: roughness
     });
     this.head = new THREE.Mesh(headGeo, headMat);
     this.head.position.y = 2.1;
     this.head.castShadow = true;
     this.group.add(this.head);
 
-    // 4. Glowing Red Eyes (Tiny Cylinders emitting light)
+    // 4. Glowing Eyes
     const eyeGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.08, 6);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const eyeMat = new THREE.MeshBasicMaterial({ color: eyeColor });
     
     this.leftEye = new THREE.Mesh(eyeGeo, eyeMat);
     this.leftEye.rotation.x = Math.PI / 2;
@@ -913,5 +976,297 @@ export class ForgeCardVisual {
     this.mesh.position.lerp(this.targetPosition, lerpFactor);
     const targetQ = new THREE.Quaternion().setFromEuler(this.targetRotation);
     this.mesh.quaternion.slerp(targetQ, lerpFactor);
+  }
+}
+
+export class ShopItemVisual {
+  mesh: THREE.Mesh;
+  targetPosition = new THREE.Vector3();
+  targetRotation = new THREE.Euler();
+  itemId: string;
+  itemType: 'card' | 'upgrade' | 'heal';
+  cost: number;
+  purchased: boolean = false;
+  
+  constructor(type: 'card' | 'upgrade' | 'heal', data: any, itemId: string, purchased: boolean) {
+    this.itemType = type;
+    this.itemId = itemId;
+    this.purchased = purchased;
+    this.cost = data.cost;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d')!;
+
+    let bgColor = '#181224';
+    let borderColor = '#6a4c9c';
+    let roughness = 0.5;
+    let metalness = 0.5;
+
+    if (type === 'card') {
+      const rarity = data.rarity || 'common';
+      if (rarity === 'common') {
+        bgColor = '#22252a';
+        borderColor = '#aaaaaa';
+        roughness = 0.6;
+        metalness = 0.4;
+      } else if (rarity === 'uncommon') {
+        bgColor = '#1e2836';
+        borderColor = '#00bcd4';
+        roughness = 0.5;
+        metalness = 0.6;
+      } else if (rarity === 'rare') {
+        bgColor = '#2b271a';
+        borderColor = '#ffd700';
+        roughness = 0.4;
+        metalness = 0.8;
+      } else if (rarity === 'legendary') {
+        bgColor = '#331f24';
+        borderColor = '#ff5722';
+        roughness = 0.35;
+        metalness = 0.9;
+      }
+    } else if (type === 'upgrade') {
+      bgColor = '#1a1329';
+      borderColor = '#b388ff';
+      roughness = 0.45;
+      metalness = 0.7;
+    } else if (type === 'heal') {
+      bgColor = '#2d0a06';
+      borderColor = '#ff1744';
+      roughness = 0.7;
+      metalness = 0.2;
+    }
+
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < canvas.width; x += 16) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+    for (let y = 0; y < canvas.height; y += 16) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 12;
+    ctx.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(16, 16, canvas.width - 32, canvas.height - 32);
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fillRect(18, 18, canvas.width - 36, 50);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 15px "Courier Prime", monospace';
+    ctx.fillText(data.name.toUpperCase(), 24, 48);
+
+    ctx.fillStyle = borderColor;
+    ctx.font = 'bold 18px "Courier Prime", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${data.cost}⚡`, canvas.width - 28, 48);
+    ctx.textAlign = 'left';
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = 'bold 11px "Courier Prime", monospace';
+    const subLabel = type === 'card' ? `${data.type} · ${data.rarity}`.toUpperCase() : (type === 'heal' ? 'RECOVERY' : 'BOARD UPGRADE');
+    ctx.fillText(subLabel, 24, 90);
+
+    ctx.fillStyle = '#dddddd';
+    ctx.font = 'bold 12px "Courier Prime", monospace';
+    const words = data.description.split(' ');
+    let line = '';
+    let y = 120;
+    for (let n = 0; n < words.length; n++) {
+      const testLine = line + words[n] + ' ';
+      const metrics = ctx.measureText(testLine);
+      if (metrics.width > (canvas.width - 48) && n > 0) {
+        ctx.fillText(line, 24, y);
+        line = words[n] + ' ';
+        y += 18;
+      } else {
+        line = testLine;
+      }
+    }
+    ctx.fillText(line, 24, y);
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+    ctx.fillRect(24, 210, canvas.width - 48, 120);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.strokeRect(28, 214, canvas.width - 56, 112);
+
+    ctx.fillStyle = borderColor;
+    ctx.font = 'bold 42px "Courier Prime", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const icon = type === 'heal' ? '🩸' : (type === 'upgrade' ? '⚙️' : '🃏');
+    ctx.fillText(icon, canvas.width / 2, 270);
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+
+    if (this.purchased) {
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(-Math.PI / 12);
+      ctx.fillStyle = 'rgba(255, 0, 80, 0.15)';
+      ctx.fillRect(-100, -30, 200, 60);
+      ctx.strokeStyle = '#ff0050';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(-100, -30, 200, 60);
+      ctx.fillStyle = '#ff0050';
+      ctx.font = 'bold 36px "Courier Prime", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(type === 'upgrade' ? 'OWNED' : 'SOLD', 0, 0);
+      ctx.restore();
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.needsUpdate = true;
+
+    const cardGeo = new THREE.BoxGeometry(0.18, 0.25, 0.004);
+    const sideColor = type === 'heal' ? 0x2d0a06 : 0x181224;
+    const backMat = new THREE.MeshPhongMaterial({ color: sideColor, shininess: 10, fog: false });
+    const sideMat = new THREE.MeshPhongMaterial({ color: sideColor, shininess: 10, fog: false });
+    const frontMat = new THREE.MeshStandardMaterial({ 
+      map: texture, 
+      metalness: this.purchased ? 0.1 : metalness, 
+      roughness: this.purchased ? 0.9 : roughness,
+      fog: false 
+    });
+
+    this.mesh = new THREE.Mesh(cardGeo, [sideMat, sideMat, sideMat, sideMat, frontMat, backMat]);
+    this.mesh.castShadow = true;
+    this.mesh.receiveShadow = true;
+
+    this.mesh.userData = {
+      isShopItem: true,
+      shopItemIdx: itemId,
+      shopItemType: type
+    };
+  }
+
+  update(time: number) {
+    this.mesh.position.lerp(this.targetPosition, 0.08);
+    const targetQ = new THREE.Quaternion().setFromEuler(this.targetRotation);
+    this.mesh.quaternion.slerp(targetQ, 0.08);
+  }
+}
+
+export class EventChoiceVisual {
+  mesh: THREE.Mesh;
+  targetPosition = new THREE.Vector3();
+  targetRotation = new THREE.Euler();
+  choiceId: string;
+  
+  constructor(choiceId: string, title: string, costText: string, description: string) {
+    this.choiceId = choiceId;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d')!;
+
+    ctx.fillStyle = '#242b27';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 6; i++) {
+      ctx.beginPath();
+      ctx.moveTo(Math.random() * 256, 0);
+      ctx.lineTo(Math.random() * 256, 360);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = '#4a594f';
+    ctx.lineWidth = 14;
+    ctx.strokeRect(7, 7, canvas.width - 14, canvas.height - 14);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(16, 16, canvas.width - 32, canvas.height - 32);
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.fillRect(18, 18, canvas.width - 36, 52);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 15px "Courier Prime", monospace';
+    ctx.fillText(title.toUpperCase(), 24, 48);
+
+    ctx.fillStyle = '#81c784';
+    if (costText.includes('Lose') || costText.includes('cost')) {
+      ctx.fillStyle = '#e57373';
+    }
+    ctx.font = 'bold 11px "Courier Prime", monospace';
+    ctx.fillText(costText.toUpperCase(), 24, 90);
+
+    ctx.fillStyle = '#dddddd';
+    ctx.font = 'bold 12px "Courier Prime", monospace';
+    const words = description.split(' ');
+    let line = '';
+    let y = 120;
+    for (let n = 0; n < words.length; n++) {
+      const testLine = line + words[n] + ' ';
+      const metrics = ctx.measureText(testLine);
+      if (metrics.width > (canvas.width - 48) && n > 0) {
+        ctx.fillText(line, 24, y);
+        line = words[n] + ' ';
+        y += 18;
+      } else {
+        line = testLine;
+      }
+    }
+    ctx.fillText(line, 24, y);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.font = 'bold 72px "Courier Prime", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const runes = ['ᛗ', 'ᛟ', 'ᚦ', 'ᚱ', 'ᚺ', 'ᛊ'];
+    const rune = runes[parseInt(choiceId) % runes.length];
+    ctx.fillText(rune, canvas.width / 2, 270);
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.needsUpdate = true;
+
+    const tabletGeo = new THREE.BoxGeometry(0.20, 0.28, 0.015);
+    const sideMat = new THREE.MeshPhongMaterial({ color: 0x1e2421, shininess: 2, fog: false });
+    const frontMat = new THREE.MeshStandardMaterial({ 
+      map: texture, 
+      roughness: 0.85, 
+      metalness: 0.1,
+      fog: false 
+    });
+
+    this.mesh = new THREE.Mesh(tabletGeo, [sideMat, sideMat, sideMat, sideMat, frontMat, sideMat]);
+    this.mesh.castShadow = true;
+    this.mesh.receiveShadow = true;
+
+    this.mesh.userData = {
+      isEventChoice: true,
+      eventChoiceId: choiceId
+    };
+  }
+
+  update(time: number) {
+    this.mesh.position.lerp(this.targetPosition, 0.08);
+    const targetQ = new THREE.Quaternion().setFromEuler(this.targetRotation);
+    this.mesh.quaternion.slerp(targetQ, 0.08);
   }
 }

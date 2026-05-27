@@ -41,6 +41,7 @@ export interface Enemy {
   patternIndex: number;
   spriteName: string; // low poly representation name
   isBoss: boolean;
+  isElite?: boolean;
 }
 
 export type NodeType = 'combat' | 'elite' | 'event' | 'shop' | 'boss' | 'forge';
@@ -136,6 +137,7 @@ export interface RunState {
   // Forge system
   forgeCards?: ForgeCard[];
   forgeRerollCount?: number;
+  combatMode?: 'points' | 'damage';
 }
 
 export interface Bet {
@@ -147,6 +149,10 @@ export interface Bet {
 export interface BattleState {
   enemy: Enemy;
   turn: number;
+  playerScore?: number;
+  enemyScore?: number;
+  maxRounds?: number;
+  isSuddenDeath?: boolean;
   chipsPool: number; // Chips available to bet this turn
   hand: Card[];
   drawPile: Card[];

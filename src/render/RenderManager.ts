@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { GameEngine } from '../core/GameEngine';
-import { WheelVisual, CardVisual, EnemyVisual, ForgeCardVisual } from './WheelVisual';
+import { WheelVisual, CardVisual, EnemyVisual, ForgeCardVisual, ShopItemVisual, EventChoiceVisual } from './WheelVisual';
 import { PS1Shader } from './PS1Shader';
-import { Card, WheelConfig } from '../core/Types';
+import { Card, WheelConfig, BoardUpgrade } from '../core/Types';
 import { getSlotColor } from '../physics/RoulettePhysics';
 import { SoundManager } from '../ui/SoundManager';
+import { BOARD_UPGRADES } from '../core/WheelUpgrades';
 
 export class RenderManager {
   engine: GameEngine;
@@ -84,6 +85,29 @@ export class RenderManager {
   private playerOutsideBets: Array<{ type: string; xStart: number; width: number; yStart: number; height: number }> = [];
   private enemyOutsideBets: Array<{ type: string; xStart: number; width: number; yStart: number; height: number }> = [];
   
+  // Shop & Event 3D scenes
+  shopScene!: THREE.Scene;
+  shopItemsVisuals: ShopItemVisual[] = [];
+  shopCardsGroup!: THREE.Group;
+  hoveredShopItemId: string | null = null;
+
+  eventScene!: THREE.Scene;
+  eventChoicesVisuals: EventChoiceVisual[] = [];
+  eventChoicesGroup!: THREE.Group;
+  hoveredEventChoiceId: string | null = null;
+
+  // 3D Shop selection & Confirm Bell
+  selectedShopItemId: string | null = null;
+  selectedEventChoiceId: string | null = null;
+  shopBellGroup!: THREE.Group;
+  shopBellPlunger!: THREE.Mesh;
+  shopBellShakeTime = 0;
+  shopCandleLight!: THREE.PointLight;
+  eventLeftTorchLight!: THREE.PointLight;
+  eventRightTorchLight!: THREE.PointLight;
+
+  public ui: any = null;
+
   // Raycasting
   raycaster = new THREE.Raycaster();
   mouse = new THREE.Vector2(-999, -999);
@@ -142,6 +166,8 @@ export class RenderManager {
     this.initThree();
     this.buildScene();
     this.buildForgeScene();
+    this.buildShopScene();
+    this.buildEventScene();
     this.setupPostProcessing();
     this.setupEvents();
     
@@ -188,6 +214,7 @@ export class RenderManager {
     
     this.wheelVis.rebuildWheel(false, battle.playerWheel);
     this.enemyWheelVis.rebuildWheel(true, battle.enemyWheel);
+    this.enemyVis.rebuildEnemy(battle.enemy.spriteName);
     
     // Also reset active states
     this.wheelVis.setBallVisible(true);
@@ -707,6 +734,439 @@ export class RenderManager {
     this.forgeCardsGroup = new THREE.Group();
     this.forgeScene.add(this.forgeCardsGroup);
   }
+
+  private buildShopScene() {
+    this.shopScene = new THREE.Scene();
+    this.shopScene.fog = new THREE.FogExp2(0x0f0b1a, 0.05);
+
+    const ambLight = new THREE.AmbientLight(0x1a1230, 0.6);
+    this.shopScene.add(ambLight);
+
+    const centerLight = new THREE.PointLight(0xb388ff, 3.0, 6.0);
+    centerLight.position.set(0.0, 2.0, -0.4);
+    centerLight.castShadow = true;
+    this.shopScene.add(centerLight);
+
+    const cardLight = new THREE.PointLight(0xffeaad, 1.5, 3.0);
+    cardLight.position.set(0.0, 0.9, 0.7);
+    this.shopScene.add(cardLight);
+
+    const shopSpotlight = new THREE.SpotLight(0xd1c4e9, 3.0, 8.0, Math.PI / 3, 0.5, 1.0);
+    shopSpotlight.position.set(0.0, 3.0, 0.8);
+    const shopSpotlightTarget = new THREE.Object3D();
+    shopSpotlightTarget.position.set(0.0, 0.3, -0.4);
+    this.shopScene.add(shopSpotlightTarget);
+    shopSpotlight.target = shopSpotlightTarget;
+    shopSpotlight.castShadow = true;
+    shopSpotlight.shadow.mapSize.width = 1024;
+    shopSpotlight.shadow.mapSize.height = 1024;
+    shopSpotlight.shadow.bias = -0.001;
+    this.shopScene.add(shopSpotlight);
+
+    // Flickering candle on the right side of the counter
+    const candleGroup = new THREE.Group();
+    candleGroup.position.set(0.6, 0.4, -0.15); // table top is y=0.4
+    this.shopScene.add(candleGroup);
+
+    // Candle wax body
+    const candleGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.12, 8);
+    const candleMat = new THREE.MeshPhongMaterial({ color: 0xddcbb4, shininess: 8 });
+    const candle = new THREE.Mesh(candleGeo, candleMat);
+    candle.position.y = 0.06;
+    candle.castShadow = true;
+    candle.receiveShadow = true;
+    candleGroup.add(candle);
+
+    // Flame
+    const flameGeo = new THREE.ConeGeometry(0.01, 0.03, 6);
+    const flameMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+    const flame = new THREE.Mesh(flameGeo, flameMat);
+    flame.position.y = 0.135;
+    candleGroup.add(flame);
+
+    // Candle PointLight
+    this.shopCandleLight = new THREE.PointLight(0xff9800, 3.5, 3.0);
+    this.shopCandleLight.position.set(0.6, 0.55, -0.15);
+    this.shopCandleLight.castShadow = true;
+    this.shopCandleLight.shadow.bias = -0.002;
+    this.shopScene.add(this.shopCandleLight);
+
+    // 3D Gold Counter Bell
+    this.shopBellGroup = new THREE.Group();
+    this.shopBellGroup.position.set(-0.6, 0.4, -0.15); // on left side of the table (easy to click!)
+    this.shopScene.add(this.shopBellGroup);
+
+    // Bell base
+    const bellBaseGeo = new THREE.CylinderGeometry(0.045, 0.05, 0.012, 10);
+    const bellBaseMat = new THREE.MeshPhongMaterial({ color: 0x1a1a1a, shininess: 20 });
+    const bellBase = new THREE.Mesh(bellBaseGeo, bellBaseMat);
+    bellBase.position.y = 0.006;
+    bellBase.castShadow = true;
+    bellBase.receiveShadow = true;
+    bellBase.userData = { isShopBell: true };
+    this.shopBellGroup.add(bellBase);
+
+    // Dome
+    const bellDomeGeo = new THREE.CylinderGeometry(0.035, 0.04, 0.03, 12);
+    const bellDomeMat = new THREE.MeshPhongMaterial({ color: 0xffd700, shininess: 90 });
+    const bellDome = new THREE.Mesh(bellDomeGeo, bellDomeMat);
+    bellDome.position.y = 0.027;
+    bellDome.castShadow = true;
+    bellDome.userData = { isShopBell: true };
+    this.shopBellGroup.add(bellDome);
+
+    // Plunger
+    const shaftGeo = new THREE.CylinderGeometry(0.004, 0.004, 0.022, 6);
+    const metalMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.2 });
+    this.shopBellPlunger = new THREE.Mesh(shaftGeo, metalMat);
+    this.shopBellPlunger.position.y = 0.053;
+    this.shopBellPlunger.castShadow = true;
+    this.shopBellPlunger.userData = { isShopBell: true };
+    this.shopBellGroup.add(this.shopBellPlunger);
+
+    const capGeo = new THREE.SphereGeometry(0.01, 6, 6);
+    const bellCap = new THREE.Mesh(capGeo, metalMat);
+    bellCap.position.y = 0.011;
+    bellCap.userData = { isShopBell: true };
+    this.shopBellPlunger.add(bellCap);
+
+    const floorGeo = new THREE.PlaneGeometry(8, 8);
+    const floorMat = new THREE.MeshPhongMaterial({ color: 0x221d30, shininess: 4 });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    this.shopScene.add(floor);
+
+    const wallMat = new THREE.MeshPhongMaterial({ color: 0x28233b, shininess: 2, side: THREE.DoubleSide });
+    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(8, 5), wallMat);
+    backWall.position.set(0, 2.5, -3.0);
+    backWall.receiveShadow = true;
+    this.shopScene.add(backWall);
+
+    const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(8, 5), wallMat);
+    leftWall.rotation.y = Math.PI / 2;
+    leftWall.position.set(-3.0, 2.5, 0);
+    leftWall.receiveShadow = true;
+    this.shopScene.add(leftWall);
+
+    const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(8, 5), wallMat);
+    rightWall.rotation.y = -Math.PI / 2;
+    rightWall.position.set(3.0, 2.5, 0);
+    rightWall.receiveShadow = true;
+    this.shopScene.add(rightWall);
+
+    const tableGeo = new THREE.BoxGeometry(1.6, 0.4, 0.6);
+    const tableMat = new THREE.MeshPhongMaterial({ color: 0x3d251a, shininess: 12 });
+    const table = new THREE.Mesh(tableGeo, tableMat);
+    table.position.set(0.0, 0.2, -0.4);
+    table.receiveShadow = true;
+    table.castShadow = true;
+    this.shopScene.add(table);
+
+    this.shopCardsGroup = new THREE.Group();
+    this.shopScene.add(this.shopCardsGroup);
+  }
+
+  private buildEventScene() {
+    this.eventScene = new THREE.Scene();
+    this.eventScene.fog = new THREE.FogExp2(0x0a140f, 0.07);
+
+    const ambLight = new THREE.AmbientLight(0x0d1a14, 0.6);
+    this.eventScene.add(ambLight);
+
+    const centerLight = new THREE.PointLight(0x81c784, 1.5, 5.0);
+    centerLight.position.set(0.0, 2.0, -0.4);
+    centerLight.castShadow = true;
+    this.eventScene.add(centerLight);
+
+    const tabletLight = new THREE.PointLight(0xffeaad, 1.2, 3.0);
+    tabletLight.position.set(0.0, 0.9, 0.7);
+    this.eventScene.add(tabletLight);
+
+    // Focused green/teal spotlight shining on the altar
+    const eventSpotlight = new THREE.SpotLight(0x81c784, 3.0, 8.0, Math.PI / 4, 0.5, 1.0);
+    eventSpotlight.position.set(0.0, 3.0, 0.8);
+    const eventSpotlightTarget = new THREE.Object3D();
+    eventSpotlightTarget.position.set(0.0, 0.3, -0.4);
+    this.eventScene.add(eventSpotlightTarget);
+    eventSpotlight.target = eventSpotlightTarget;
+    eventSpotlight.castShadow = true;
+    eventSpotlight.shadow.mapSize.width = 1024;
+    eventSpotlight.shadow.mapSize.height = 1024;
+    this.eventScene.add(eventSpotlight);
+
+    // Left Runic Torch (Cyan)
+    const leftTorchGroup = new THREE.Group();
+    leftTorchGroup.position.set(-0.6, 0.6, -0.4);
+    this.eventScene.add(leftTorchGroup);
+
+    const leftTorchGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.15, 6);
+    const leftTorchMat = new THREE.MeshPhongMaterial({ color: 0x333333, shininess: 5 });
+    const leftTorch = new THREE.Mesh(leftTorchGeo, leftTorchMat);
+    leftTorch.castShadow = true;
+    leftTorchGroup.add(leftTorch);
+
+    const leftCrystalGeo = new THREE.OctahedronGeometry(0.03, 0);
+    const leftCrystalMat = new THREE.MeshStandardMaterial({ color: 0x00e5ff, emissive: 0x00e5ff, emissiveIntensity: 2.0, roughness: 0.1 });
+    const leftCrystal = new THREE.Mesh(leftCrystalGeo, leftCrystalMat);
+    leftCrystal.position.y = 0.1;
+    leftTorchGroup.add(leftCrystal);
+
+    this.eventLeftTorchLight = new THREE.PointLight(0x00e5ff, 1.5, 3.0);
+    this.eventLeftTorchLight.position.set(-0.6, 0.7, -0.4);
+    this.eventLeftTorchLight.castShadow = true;
+    this.eventScene.add(this.eventLeftTorchLight);
+
+    // Right Runic Torch (Emerald Green)
+    const rightTorchGroup = new THREE.Group();
+    rightTorchGroup.position.set(0.6, 0.6, -0.4);
+    this.eventScene.add(rightTorchGroup);
+
+    const rightTorchGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.15, 6);
+    const rightTorchMat = new THREE.MeshPhongMaterial({ color: 0x333333, shininess: 5 });
+    const rightTorch = new THREE.Mesh(rightTorchGeo, rightTorchMat);
+    rightTorch.castShadow = true;
+    rightTorchGroup.add(rightTorch);
+
+    const rightCrystalGeo = new THREE.OctahedronGeometry(0.03, 0);
+    const rightCrystalMat = new THREE.MeshStandardMaterial({ color: 0x2ecc71, emissive: 0x2ecc71, emissiveIntensity: 2.0, roughness: 0.1 });
+    const rightCrystal = new THREE.Mesh(rightCrystalGeo, rightCrystalMat);
+    rightCrystal.position.y = 0.1;
+    rightTorchGroup.add(rightCrystal);
+
+    this.eventRightTorchLight = new THREE.PointLight(0x2ecc71, 1.5, 3.0);
+    this.eventRightTorchLight.position.set(0.6, 0.7, -0.4);
+    this.eventRightTorchLight.castShadow = true;
+    this.eventScene.add(this.eventRightTorchLight);
+
+    const floorGeo = new THREE.PlaneGeometry(8, 8);
+    const floorMat = new THREE.MeshPhongMaterial({ color: 0x1d2420, shininess: 2 });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    this.eventScene.add(floor);
+
+    const wallMat = new THREE.MeshPhongMaterial({ color: 0x222a25, shininess: 1, side: THREE.DoubleSide });
+    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(8, 5), wallMat);
+    backWall.position.set(0, 2.5, -3.0);
+    backWall.receiveShadow = true;
+    this.eventScene.add(backWall);
+
+    const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(8, 5), wallMat);
+    leftWall.rotation.y = Math.PI / 2;
+    leftWall.position.set(-3.0, 2.5, 0);
+    leftWall.receiveShadow = true;
+    this.eventScene.add(leftWall);
+
+    const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(8, 5), wallMat);
+    rightWall.rotation.y = -Math.PI / 2;
+    rightWall.position.set(3.0, 2.5, 0);
+    rightWall.receiveShadow = true;
+    this.eventScene.add(rightWall);
+
+    const altarGeo = new THREE.BoxGeometry(0.8, 0.6, 0.8);
+    const altarMat = new THREE.MeshPhongMaterial({ color: 0x111111, shininess: 15 });
+    const altar = new THREE.Mesh(altarGeo, altarMat);
+    altar.position.set(0.0, 0.3, -0.4);
+    altar.receiveShadow = true;
+    altar.castShadow = true;
+    this.eventScene.add(altar);
+
+    this.eventChoicesGroup = new THREE.Group();
+    this.eventScene.add(this.eventChoicesGroup);
+  }
+
+  public syncShopItems() {
+    if (!this.ui) return;
+
+    const activeTab = this.ui.activeShopTab;
+    const currentOffers: Array<{ type: 'card' | 'upgrade' | 'heal', data: any, id: string, purchased: boolean }> = [];
+
+    if (activeTab === 'cards') {
+      this.ui.shopCards.forEach((c: any, idx: number) => {
+        currentOffers.push({
+          type: 'card',
+          data: c,
+          id: idx.toString(),
+          purchased: false
+        });
+      });
+
+      const state = this.engine.runState;
+      const healCost = 12;
+      const isFullHp = state.hp >= state.maxHp;
+      currentOffers.push({
+        type: 'heal',
+        data: {
+          name: 'Blood Infusion',
+          description: 'Transfuse essence back into your veins. Heals 25 HP.',
+          cost: healCost
+        },
+        id: '999',
+        purchased: isFullHp
+      });
+    } else {
+      const playerWheel = this.engine.runState.playerWheel;
+      Object.keys(BOARD_UPGRADES).forEach(key => {
+        const upgrade = BOARD_UPGRADES[key];
+        const isOwned = playerWheel.upgrades.includes(key);
+        currentOffers.push({
+          type: 'upgrade',
+          data: upgrade,
+          id: key,
+          purchased: isOwned
+        });
+      });
+    }
+
+    const activeOfferIds = currentOffers.map(o => o.id);
+    this.shopItemsVisuals = this.shopItemsVisuals.filter(siv => {
+      const exists = activeOfferIds.includes(siv.itemId) && siv.itemType === (currentOffers.find(o => o.id === siv.itemId)?.type === 'heal' ? 'heal' : activeTab === 'cards' ? 'card' : 'upgrade');
+      if (!exists) {
+        this.shopCardsGroup.remove(siv.mesh);
+      }
+      return exists;
+    });
+
+    currentOffers.forEach((offer, idx) => {
+      let siv = this.shopItemsVisuals.find(v => v.itemId === offer.id);
+      if (!siv || siv.purchased !== offer.purchased) {
+        if (siv) this.shopCardsGroup.remove(siv.mesh);
+        siv = new ShopItemVisual(offer.type, offer.data, offer.id, offer.purchased);
+        this.shopCardsGroup.add(siv.mesh);
+        this.shopItemsVisuals.push(siv);
+      }
+
+      const N = currentOffers.length;
+      const spacing = activeTab === 'cards' ? 0.28 : 0.24;
+      const tx = (idx - (N - 1) / 2) * spacing;
+      const ty = 0.52;
+      const tz = 0.15;
+
+      const isHovered = (this.hoveredShopItemId === offer.id);
+      const isSelected = (this.selectedShopItemId === offer.id);
+
+      let targetY = ty;
+      let targetZ = tz;
+      let targetRotX = -0.42;
+
+      if (isSelected) {
+        targetY += 0.14; // float higher
+        targetZ += 0.08; // move forward closer to camera
+        targetRotX = -0.15; // tilt forward for reading
+      } else if (isHovered) {
+        targetY += 0.06;
+        targetZ += 0.03;
+        targetRotX = -0.32;
+      }
+
+      siv.targetPosition.set(
+        tx,
+        targetY + Math.sin(Date.now() * 0.003 + idx) * 0.012,
+        targetZ
+      );
+
+      const cardAngleY = ((N - 1) / 2 - idx) * 0.12;
+      siv.targetRotation.set(
+        targetRotX,
+        cardAngleY + (isHovered ? Math.sin(Date.now() * 0.005) * 0.08 : 0),
+        0
+      );
+    });
+  }
+
+  public syncEventChoices() {
+    const choices = [
+      { id: '1', title: 'Inject Syringe', cost: 'Lose 8 Blood', desc: 'Gain 25 Essence chips.' },
+      { id: '2', title: 'Accept Magnet', cost: 'Acquire Lodestone', desc: 'Add Lodestone Magnet card to your deck.' },
+      { id: '3', title: 'Decline & Pass', cost: 'Decline Offer', desc: 'Push past them. Gain nothing, lose nothing.' }
+    ];
+
+    const activeIds = choices.map(c => c.id);
+    this.eventChoicesVisuals = this.eventChoicesVisuals.filter(ecv => {
+      const exists = activeIds.includes(ecv.choiceId);
+      if (!exists) {
+        this.eventChoicesGroup.remove(ecv.mesh);
+      }
+      return exists;
+    });
+
+    choices.forEach((choice, idx) => {
+      let ecv = this.eventChoicesVisuals.find(v => v.choiceId === choice.id);
+      if (!ecv) {
+        ecv = new EventChoiceVisual(choice.id, choice.title, choice.cost, choice.desc);
+        this.eventChoicesGroup.add(ecv.mesh);
+        this.eventChoicesVisuals.push(ecv);
+      }
+
+      const tx = (idx - 1) * 0.35;
+      const ty = 0.58;
+      const tz = 0.15;
+
+      const isHovered = (this.hoveredEventChoiceId === choice.id);
+      const isSelected = (this.selectedEventChoiceId === choice.id);
+
+      let targetY = ty;
+      let targetZ = tz;
+      let targetRotX = -0.42;
+
+      if (isSelected) {
+        targetY += 0.14; // float higher
+        targetZ += 0.08; // move forward closer to camera
+        targetRotX = -0.15; // tilt forward for reading
+      } else if (isHovered) {
+        targetY += 0.06;
+        targetZ += 0.03;
+        targetRotX = -0.32;
+      }
+
+      ecv.targetPosition.set(
+        tx,
+        targetY + Math.sin(Date.now() * 0.003 + idx) * 0.012,
+        targetZ
+      );
+
+      const cardAngleY = (1 - idx) * 0.18;
+      ecv.targetRotation.set(
+        targetRotX,
+        cardAngleY + (isHovered ? Math.sin(Date.now() * 0.005) * 0.08 : 0),
+        0
+      );
+    });
+  }
+
+  private performShopRaycasting() {
+    if (this.mouse.x === -999) {
+      this.hoveredShopItemId = null;
+    } else {
+      this.raycaster.setFromCamera(this.mouse, this.camera);
+      const meshes = this.shopItemsVisuals.map(cv => cv.mesh);
+      const intersects = this.raycaster.intersectObjects(meshes);
+      if (intersects.length > 0) {
+        const hitObj = intersects[0].object;
+        this.hoveredShopItemId = hitObj.userData.shopItemIdx;
+      } else {
+        this.hoveredShopItemId = null;
+      }
+    }
+  }
+
+  private performEventRaycasting() {
+    if (this.mouse.x === -999) {
+      this.hoveredEventChoiceId = null;
+    } else {
+      this.raycaster.setFromCamera(this.mouse, this.camera);
+      const meshes = this.eventChoicesVisuals.map(cv => cv.mesh);
+      const intersects = this.raycaster.intersectObjects(meshes);
+      if (intersects.length > 0) {
+        const hitObj = intersects[0].object;
+        this.hoveredEventChoiceId = hitObj.userData.eventChoiceId;
+      } else {
+        this.hoveredEventChoiceId = null;
+      }
+    }
+  }
+
 
   private updateForgeSparks(sec: number) {
     const dt = 0.016;
@@ -1401,6 +1861,9 @@ export class RenderManager {
     let isPressedOnBell = false;
     let pressedCardId: string | null = null;
     let isPressedOnPlayedCard = false;
+    let pressedShopItemId: string | null = null;
+    let isPressedOnShopBell = false;
+    let pressedEventChoiceId: string | null = null;
 
     const getMouseCoords = (e: PointerEvent) => {
       const rect = this.renderer.domElement.getBoundingClientRect();
@@ -1410,8 +1873,12 @@ export class RenderManager {
     };
 
     this.container.addEventListener('pointerdown', (e) => {
-      const isForge = this.engine.runState.gameState === 'FORGE';
-      if (!isForge && (!this.engine.battleState || this.engine.battleState.phase !== 'betting')) {
+      const state = this.engine.runState;
+      const isForge = state.gameState === 'FORGE';
+      const isShop = state.gameState === 'SHOP';
+      const isEvent = state.gameState === 'EVENT';
+
+      if (!isForge && !isShop && !isEvent && (!this.engine.battleState || this.engine.battleState.phase !== 'betting')) {
         return; // Lock all inputs!
       }
       startX = e.clientX;
@@ -1430,6 +1897,44 @@ export class RenderManager {
           pressedCardId = hitObj.userData.forgeCardId;
         } else {
           pressedCardId = null;
+        }
+        return;
+      }
+
+      if (isShop) {
+        pressedShopItemId = null;
+        isPressedOnShopBell = false;
+
+        const shopMeshes = this.shopItemsVisuals.map(cv => cv.mesh);
+        const intersects = this.raycaster.intersectObjects(shopMeshes);
+        if (intersects.length > 0) {
+          const hitObj = intersects[0].object;
+          pressedShopItemId = hitObj.userData.shopItemIdx;
+        } else {
+          // Check shop bell
+          const bellObjects: THREE.Object3D[] = [];
+          if (this.shopBellGroup) {
+            this.shopBellGroup.traverse((obj) => {
+              if (obj.userData && obj.userData.isShopBell) {
+                bellObjects.push(obj);
+              }
+            });
+          }
+          const bellIntersects = this.raycaster.intersectObjects(bellObjects);
+          if (bellIntersects.length > 0) {
+            isPressedOnShopBell = true;
+          }
+        }
+        return;
+      }
+
+      if (isEvent) {
+        pressedEventChoiceId = null;
+        const eventMeshes = this.eventChoicesVisuals.map(cv => cv.mesh);
+        const intersects = this.raycaster.intersectObjects(eventMeshes);
+        if (intersects.length > 0) {
+          const hitObj = intersects[0].object;
+          pressedEventChoiceId = hitObj.userData.eventChoiceId;
         }
         return;
       }
@@ -1533,7 +2038,10 @@ export class RenderManager {
 
     this.container.addEventListener('pointerup', (e) => {
       const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
-      const isForge = this.engine.runState.gameState === 'FORGE';
+      const state = this.engine.runState;
+      const isForge = state.gameState === 'FORGE';
+      const isShop = state.gameState === 'SHOP';
+      const isEvent = state.gameState === 'EVENT';
 
       if (isForge) {
         if (pressedCardId && dist <= 5) {
@@ -1542,6 +2050,86 @@ export class RenderManager {
           }
         }
         pressedCardId = null;
+        return;
+      }
+
+      if (isShop) {
+        if (dist <= 5 && this.ui) {
+          if (pressedShopItemId) {
+            if (this.selectedShopItemId === pressedShopItemId) {
+              // Clicked already selected card: Buy it!
+              const activeTab = this.ui.activeShopTab;
+              let success = false;
+              if (activeTab === 'cards') {
+                const idx = parseInt(pressedShopItemId);
+                success = this.ui.purchaseShopCard(idx);
+              } else {
+                success = this.ui.purchaseBoardUpgrade(pressedShopItemId);
+              }
+              if (success) {
+                this.selectedShopItemId = null;
+                this.ui.updateShopDescriptionBox();
+              }
+            } else {
+              // Clicked different card: Select it!
+              this.selectedShopItemId = pressedShopItemId;
+              this.sound.playCardSwoosh();
+              this.ui.updateShopDescriptionBox();
+            }
+          } else if (isPressedOnShopBell) {
+            this.shopBellShakeTime = 0.15;
+            this.sound.playBell();
+            if (this.selectedShopItemId) {
+              const activeTab = this.ui.activeShopTab;
+              let success = false;
+              if (activeTab === 'cards') {
+                const idx = parseInt(this.selectedShopItemId);
+                success = this.ui.purchaseShopCard(idx);
+              } else {
+                success = this.ui.purchaseBoardUpgrade(this.selectedShopItemId);
+              }
+              if (success) {
+                this.selectedShopItemId = null;
+                this.ui.updateShopDescriptionBox();
+              }
+            }
+          } else {
+            // Clicked empty space: deselect
+            if (this.selectedShopItemId !== null) {
+              this.selectedShopItemId = null;
+              this.sound.playCardSwoosh();
+              this.ui.updateShopDescriptionBox();
+            }
+          }
+        }
+        pressedShopItemId = null;
+        isPressedOnShopBell = false;
+        return;
+      }
+
+      if (isEvent) {
+        if (dist <= 5 && this.ui) {
+          if (pressedEventChoiceId) {
+            if (this.selectedEventChoiceId === pressedEventChoiceId) {
+              // Clicked already selected tablet: Confirm!
+              this.ui.makeEventChoice(pressedEventChoiceId);
+              this.selectedEventChoiceId = null;
+            } else {
+              // Clicked different tablet: Select it!
+              this.selectedEventChoiceId = pressedEventChoiceId;
+              this.sound.playCardSwoosh();
+              this.ui.updateEventDescriptionBox();
+            }
+          } else {
+            // Clicked empty space: deselect
+            if (this.selectedEventChoiceId !== null) {
+              this.selectedEventChoiceId = null;
+              this.sound.playCardSwoosh();
+              this.ui.updateEventDescriptionBox();
+            }
+          }
+        }
+        pressedEventChoiceId = null;
         return;
       }
 
@@ -2002,6 +2590,8 @@ export class RenderManager {
     this.updateFpsStats(time);
     const sec = time * 0.001;
     const isForge = this.engine.runState.gameState === 'FORGE';
+    const isShop = this.engine.runState.gameState === 'SHOP';
+    const isEvent = this.engine.runState.gameState === 'EVENT';
 
     // Animate hanging light bulb sway
     if (this.bulbGroup) {
@@ -2042,12 +2632,59 @@ export class RenderManager {
       
       this.bulbLight.intensity = baseIntensity * flicker;
       this.bulbMaterial.emissiveIntensity = flicker;
-      this.bulbMaterial.emissive.setHex(0xffeaad);
-      this.bulbMaterial.color.setHex(0xfff9e6);
+      
+      let ambientColor = 0x555c57;
+      let ambientIntensity = 2.8;
+      let spotlightColor = 0xfff8e7;
+      let bulbColor = 0xffeaad;
+      
+      const battle = this.engine.battleState;
+      if (battle && this.engine.runState.gameState === 'COMBAT') {
+        const isPointsMode = this.engine.runState.combatMode === 'points';
+        const pScore = battle.playerScore || 0;
+        const eScore = battle.enemyScore || 0;
+
+        if (isPointsMode && pScore !== eScore) {
+          if (pScore > eScore) {
+            // Player Lead: Warm golden-amber
+            ambientColor = 0x4a3b00;
+            ambientIntensity = 2.2;
+            spotlightColor = 0xffc107;
+            bulbColor = 0xffd54f;
+          } else {
+            // Enemy Lead: Alert warning red
+            ambientColor = 0x4a0a0d;
+            ambientIntensity = 1.8;
+            spotlightColor = 0xff1744;
+            bulbColor = 0xff5252;
+          }
+        } else {
+          // Default encounter colors
+          const enemy = battle.enemy;
+          if (enemy.isElite || enemy.spriteName === 'dealer_claw') { // Elite
+            ambientColor = 0x3a1f5c;
+            ambientIntensity = 1.8;
+            spotlightColor = 0xe040fb;
+            bulbColor = 0xb388ff;
+          } else if (enemy.isBoss) { // Boss
+            ambientColor = 0x5c1a1a;
+            ambientIntensity = 1.2;
+            spotlightColor = 0xff1744;
+            bulbColor = 0xff3d00;
+          }
+        }
+      }
+      
+      this.bulbMaterial.emissive.setHex(bulbColor);
+      this.bulbMaterial.color.setHex(bulbColor);
+      this.bulbLight.color.setHex(bulbColor);
       
       this.wheelSpotlight.intensity = 15.0;
+      this.wheelSpotlight.color.setHex(spotlightColor);
       this.feltSpotlight.intensity = 20.0;
-      this.ambientLight.intensity = 2.8;
+      this.feltSpotlight.color.setHex(spotlightColor);
+      this.ambientLight.intensity = ambientIntensity;
+      this.ambientLight.color.setHex(ambientColor);
     }
 
     // Trigger visual rebuilds reactively on state transitions
@@ -2194,6 +2831,30 @@ export class RenderManager {
       this.bellPlunger.position.y = 0.055;
     }
 
+    // Animate shop bell plunger shake
+    if (this.shopBellShakeTime > 0) {
+      this.shopBellShakeTime -= 0.016;
+      const t = 1.0 - Math.min(1.0, this.shopBellShakeTime / 0.15);
+      this.shopBellPlunger.position.y = 0.053 - Math.sin(t * Math.PI) * 0.012;
+    } else {
+      this.shopBellPlunger.position.y = 0.053;
+    }
+
+    // Animate alchemical candle flicker in shop
+    if (this.shopCandleLight && this.engine.runState.gameState === 'SHOP') {
+      this.shopCandleLight.intensity = 3.5 + Math.sin(sec * 15.0) * 0.5 + (Math.random() - 0.5) * 0.2;
+    }
+
+    // Animate event torch pulsing in event crypt
+    if (this.engine.runState.gameState === 'EVENT') {
+      if (this.eventLeftTorchLight) {
+        this.eventLeftTorchLight.intensity = 1.5 + Math.sin(sec * 2.5) * 0.4;
+      }
+      if (this.eventRightTorchLight) {
+        this.eventRightTorchLight.intensity = 1.5 + Math.cos(sec * 2.5) * 0.4;
+      }
+    }
+
     // Sync hand cards
     if (this.engine.battleState) {
       this.syncHand(this.engine.battleState.hand);
@@ -2294,6 +2955,40 @@ export class RenderManager {
       this.performForgeRaycasting();
       this.syncForgeCards();
       this.forgeCardsVisuals.forEach(fcv => fcv.update(0.12));
+    } else if (isShop) {
+      // Shop state camera view
+      this.activeView = 9;
+      this.cameraTargetPos.set(0.0, 1.2, 0.85);
+      this.cameraTargetLookAt.set(0.0, 0.45, -0.4);
+
+      // Transition wheel back to main scene if it was in forge
+      if (this.wheelVis.group.parent === this.forgeScene) {
+        this.scene.add(this.wheelVis.group);
+        this.wheelVis.group.position.set(-0.8, 0.05, -0.75);
+        this.wheelVis.group.rotation.set(0, 0, 0);
+        this.wheelVis.group.scale.set(0.55, 0.55, 0.55);
+      }
+
+      this.performShopRaycasting();
+      this.syncShopItems();
+      this.shopItemsVisuals.forEach(siv => siv.update(0.12));
+    } else if (isEvent) {
+      // Event state camera view
+      this.activeView = 10;
+      this.cameraTargetPos.set(0.0, 1.25, 0.95);
+      this.cameraTargetLookAt.set(0.0, 0.5, -0.4);
+
+      // Transition wheel back to main scene if it was in forge
+      if (this.wheelVis.group.parent === this.forgeScene) {
+        this.scene.add(this.wheelVis.group);
+        this.wheelVis.group.position.set(-0.8, 0.05, -0.75);
+        this.wheelVis.group.rotation.set(0, 0, 0);
+        this.wheelVis.group.scale.set(0.55, 0.55, 0.55);
+      }
+
+      this.performEventRaycasting();
+      this.syncEventChoices();
+      this.eventChoicesVisuals.forEach(ecv => ecv.update(0.12));
     } else {
       // Transition wheel back to normal scene if it was in forge
       if (this.wheelVis.group.parent === this.forgeScene) {
@@ -2305,6 +3000,20 @@ export class RenderManager {
         // Remove forge card visual meshes
         this.forgeCardsVisuals.forEach(cv => this.forgeCardsGroup.remove(cv.mesh));
         this.forgeCardsVisuals = [];
+      }
+
+      // Clean up shop items
+      if (this.shopItemsVisuals.length > 0) {
+        this.shopItemsVisuals.forEach(cv => this.shopCardsGroup.remove(cv.mesh));
+        this.shopItemsVisuals = [];
+        this.hoveredShopItemId = null;
+      }
+
+      // Clean up event choices
+      if (this.eventChoicesVisuals.length > 0) {
+        this.eventChoicesVisuals.forEach(cv => this.eventChoicesGroup.remove(cv.mesh));
+        this.eventChoicesVisuals = [];
+        this.hoveredEventChoiceId = null;
       }
 
       // Resting map or event state: slowly pan camera
@@ -2395,6 +3104,12 @@ export class RenderManager {
       // Render Forge scene directly to screen in high-resolution (bypasses low-poly PS1 pixel/dither shader for perfect card legibility)
       this.renderer.setRenderTarget(null);
       this.renderer.render(this.forgeScene, this.camera);
+    } else if (isShop) {
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.shopScene, this.camera);
+    } else if (isEvent) {
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.eventScene, this.camera);
     } else {
       // Render 3D Scene into low-poly RenderTarget
       this.renderer.setRenderTarget(this.renderTarget);

@@ -38,7 +38,8 @@ export class GameEngine {
       currentNodeId: null,
       gameState: 'MENU',
       selectedWheelId: 'classic',
-      playerWheel: JSON.parse(JSON.stringify(WHEEL_TEMPLATES.classic))
+      playerWheel: JSON.parse(JSON.stringify(WHEEL_TEMPLATES.classic)),
+      combatMode: 'points'
     };
   }
 
@@ -125,7 +126,8 @@ export class GameEngine {
       intent: { type: 'attack', value: 5, description: 'Prepare to strike (5 damage)' },
       patternIndex: 0,
       spriteName,
-      isBoss: type === 'boss'
+      isBoss: type === 'boss',
+      isElite: type === 'elite'
     };
 
     // Prepare card piles
@@ -212,6 +214,10 @@ export class GameEngine {
     this.battleState = {
       enemy,
       turn: 1,
+      playerScore: 0,
+      enemyScore: 0,
+      isSuddenDeath: false,
+      maxRounds: type === 'elite' ? 8 : type === 'boss' ? 10 : 6,
       chipsPool: 10, // Starting chips for combat turn 1
       hand: [],
       drawPile,
@@ -491,21 +497,44 @@ export class GameEngine {
     const hpPercent = this.runState.hp / this.runState.maxHp;
     const slotEffect = getSlotEffect(color, hpPercent);
     let slotEffectDesc: string | undefined;
+    const isPointsMode = this.runState.combatMode === 'points';
 
     if (slotEffect) {
       slotEffectDesc = slotEffect.description;
       switch (slotEffect.type) {
         case 'gold_heal':
           this.runState.hp = Math.min(this.runState.maxHp, this.runState.hp + 3);
+          if (isPointsMode) {
+            this.battleState.playerScore = (this.battleState.playerScore || 0) + 10;
+            slotEffectDesc = 'GOLD — Healed 3 HP and gained +10 PTS!';
+          }
           break;
         case 'purple_curse':
-          // Purple already adds 2x via payout, but costs 3 HP
           this.runState.hp = Math.max(1, this.runState.hp - 3);
+          if (isPointsMode) {
+            this.battleState.playerScore = (this.battleState.playerScore || 0) + 15;
+            slotEffectDesc = 'PURPLE CURSE — Gained +15 PTS, but lost 3 HP!';
+          }
           break;
         case 'cyan_shield':
           this.battleState.playerBlock += 8;
+          if (isPointsMode) {
+            this.battleState.playerScore = (this.battleState.playerScore || 0) + 5;
+            slotEffectDesc = 'CYAN SHIELD — Gained 8 block and +5 PTS!';
+          }
           break;
-        // crimson effects are handled in calculateSpinDamage via multiplier
+        case 'crimson_active':
+          if (isPointsMode) {
+            this.battleState.playerScore = (this.battleState.playerScore || 0) + 10;
+            slotEffectDesc = 'CRIMSON BLOOD — HP below 50%! Gained +10 PTS!';
+          }
+          break;
+        case 'crimson_inactive':
+          if (isPointsMode) {
+            this.battleState.playerScore = (this.battleState.playerScore || 0) + 3;
+            slotEffectDesc = 'CRIMSON — HP above 50%. Gained +3 PTS!';
+          }
+          break;
       }
     }
 
@@ -520,14 +549,23 @@ export class GameEngine {
       this.battleState.playerBlock += boardModifiers.shieldGenerators[winningNum];
     }
     if (boardModifiers.dangerZones && boardModifiers.dangerZones[winningNum] !== undefined) {
-      this.battleState.enemy.hp = Math.max(0, this.battleState.enemy.hp - boardModifiers.dangerZones[winningNum]);
+      const dangerDmg = boardModifiers.dangerZones[winningNum];
+      if (isPointsMode) {
+        this.battleState.playerScore = (this.battleState.playerScore || 0) + dangerDmg;
+      } else {
+        this.battleState.enemy.hp = Math.max(0, this.battleState.enemy.hp - dangerDmg);
+      }
     }
     if (boardModifiers.cursedZones && boardModifiers.cursedZones.includes(winningNum)) {
       boardModifiers.enemyStunTurns = (boardModifiers.enemyStunTurns || 0) + 2;
     }
 
-    // Apply damage to enemy
-    this.battleState.enemy.hp = Math.max(0, this.battleState.enemy.hp - damageDealt);
+    // Apply damage or points to enemy/player
+    if (isPointsMode) {
+      this.battleState.playerScore = (this.battleState.playerScore || 0) + damageDealt;
+    } else {
+      this.battleState.enemy.hp = Math.max(0, this.battleState.enemy.hp - damageDealt);
+    }
 
     // Apply Stun Strike check
     const hasStunStrike = this.battleState.activePlayedCards?.some(c => c.effectId === 'STUN_STRIKE');
@@ -766,12 +804,21 @@ export class GameEngine {
         }
         
         playerDamageTaken = incomingDmg;
-        this.runState.hp = Math.max(0, this.runState.hp - playerDamageTaken);
+        const isPointsMode = this.runState.combatMode === 'points';
+        if (isPointsMode) {
+          this.battleState.enemyScore = (this.battleState.enemyScore || 0) + playerDamageTaken;
+        } else {
+          this.runState.hp = Math.max(0, this.runState.hp - playerDamageTaken);
+        }
 
         // Aegis Ward reflection check
         const hasAegisWard = this.battleState.activePlayedCards?.some(c => c.effectId === 'AEGIS_WARD');
         if (hasAegisWard) {
-          this.battleState.enemy.hp = Math.max(0, this.battleState.enemy.hp - 4);
+          if (isPointsMode) {
+            this.battleState.playerScore = (this.battleState.playerScore || 0) + 4;
+          } else {
+            this.battleState.enemy.hp = Math.max(0, this.battleState.enemy.hp - 4);
+          }
         }
       } else if (intent.type === 'steal_chips') {
         this.battleState.chipsPool = Math.max(0, this.battleState.chipsPool - intent.value);
@@ -797,15 +844,38 @@ export class GameEngine {
   // Executes enemy turn actions
   resolveEnemyTurn() {
     if (!this.battleState) return;
-    if (this.battleState.enemy.hp <= 0) {
-      this.handleCombatVictory();
-      return;
-    }
+    const isPointsMode = this.runState.combatMode === 'points';
 
-    // Check player death (damage is already applied in resolveEnemySpin)
+    // 1. Check player death (always check, as HP is spent for card costs)
     if (this.runState.hp <= 0) {
       this.runState.gameState = 'GAME_OVER';
       return;
+    }
+
+    // 2. Perform winner checks based on combat mode
+    if (isPointsMode) {
+      if (this.battleState.turn >= (this.battleState.maxRounds || 6)) {
+        const pScore = this.battleState.playerScore || 0;
+        const eScore = this.battleState.enemyScore || 0;
+        if (pScore > eScore) {
+          this.handleCombatVictory();
+          return;
+        } else if (pScore < eScore) {
+          this.runState.hp = 0;
+          this.runState.gameState = 'GAME_OVER';
+          return;
+        } else {
+          // Tie! Trigger Sudden Death and extend rounds
+          this.battleState.isSuddenDeath = true;
+          this.battleState.maxRounds = (this.battleState.maxRounds || 6) + 1;
+        }
+      }
+    } else {
+      // Legacy HP Damage mode checks
+      if (this.battleState.enemy.hp <= 0) {
+        this.handleCombatVictory();
+        return;
+      }
     }
 
     // RETAIN hand cards across turns! Only discard activePlayedCards
@@ -1140,9 +1210,13 @@ export class GameEngine {
 
   devDamageEnemy(amount: number) {
     if (this.battleState) {
-      this.battleState.enemy.hp = Math.max(0, this.battleState.enemy.hp - amount);
-      if (this.battleState.enemy.hp === 0) {
-        this.handleCombatVictory();
+      if (this.runState.combatMode === 'points') {
+        this.battleState.playerScore = (this.battleState.playerScore || 0) + amount;
+      } else {
+        this.battleState.enemy.hp = Math.max(0, this.battleState.enemy.hp - amount);
+        if (this.battleState.enemy.hp === 0) {
+          this.handleCombatVictory();
+        }
       }
     }
   }
