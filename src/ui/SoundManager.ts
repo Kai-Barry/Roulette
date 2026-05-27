@@ -3,6 +3,11 @@ export class SoundManager {
   private droneOsc: OscillatorNode | null = null;
   private droneGain: GainNode | null = null;
   
+  // Custom audio volumes (0.0 to 1.0)
+  public musicVolume: number = 0.7; // default 70%
+  public droneVolume: number = 0.3; // default 30%
+  public sfxVolume: number = 0.8;   // default 80%
+
   constructor() {
     // Audio Context is initialized lazily upon first interaction (browser restriction)
   }
@@ -15,6 +20,23 @@ export class SoundManager {
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().catch(err => console.warn('Failed to resume AudioContext:', err));
     }
+  }
+
+  // Setters to dynamically change audio volume from settings
+  setMusicVolume(vol: number) {
+    this.musicVolume = Math.max(0, Math.min(1, vol));
+  }
+
+  setDroneVolume(vol: number) {
+    this.droneVolume = Math.max(0, Math.min(1, vol));
+    if (this.droneGain && this.ctx) {
+      // Scale ambient drone with volume slider (max amplitude 0.02)
+      this.droneGain.gain.setValueAtTime(0.02 * this.droneVolume, this.ctx.currentTime);
+    }
+  }
+
+  setSfxVolume(vol: number) {
+    this.sfxVolume = Math.max(0, Math.min(1, vol));
   }
 
   // Creepy background ambient drone (low frequency hum)
@@ -39,7 +61,7 @@ export class SoundManager {
     const lfoGain = this.ctx.createGain();
     lfo.type = 'sine';
     lfo.frequency.value = 0.2; // slow wobble
-    lfoGain.gain.value = 0.08;
+    lfoGain.gain.value = 0.01 * this.droneVolume;
 
     lfo.connect(lfoGain);
     lfoGain.connect(this.droneGain.gain);
@@ -48,7 +70,7 @@ export class SoundManager {
     filter.connect(this.droneGain);
     this.droneGain.connect(this.ctx.destination);
     
-    this.droneGain.gain.value = 0.15;
+    this.droneGain.gain.value = 0.02 * this.droneVolume;
     
     this.droneOsc.start(0);
     lfo.start(0);
@@ -80,7 +102,7 @@ export class SoundManager {
     filter.Q.value = 2.0;
 
     const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0.08, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.08 * this.sfxVolume, this.ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
 
     noiseNode.connect(filter);
@@ -104,7 +126,7 @@ export class SoundManager {
     // rapidly drop frequency
     osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.02);
 
-    gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.3 * this.sfxVolume, this.ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.025);
 
     osc.connect(gain);
@@ -126,7 +148,7 @@ export class SoundManager {
     osc.frequency.setValueAtTime(300, this.ctx.currentTime);
     osc.frequency.exponentialRampToValueAtTime(150, this.ctx.currentTime + 0.08);
 
-    gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.12 * this.sfxVolume, this.ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.09);
 
     osc.connect(gain);
@@ -152,7 +174,7 @@ export class SoundManager {
     filter.type = 'lowpass';
     filter.frequency.value = 150;
 
-    gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.4 * this.sfxVolume, this.ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
 
     osc.connect(filter);
@@ -181,7 +203,7 @@ export class SoundManager {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(freq, now);
 
-      gainNode.gain.setValueAtTime(gains[index], now);
+      gainNode.gain.setValueAtTime(gains[index] * this.sfxVolume, now);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, now + decay);
 
       // Add a slight frequency decay/wobble for retro realism
@@ -209,7 +231,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(1400 * pitchMultiplier, this.ctx.currentTime);
       osc.frequency.linearRampToValueAtTime(400, this.ctx.currentTime + 0.05);
 
-      gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.12 * this.sfxVolume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.06);
 
       const osc2 = this.ctx.createOscillator();
@@ -217,7 +239,7 @@ export class SoundManager {
       osc2.type = 'sine';
       osc2.frequency.setValueAtTime(180 * pitchMultiplier, this.ctx.currentTime);
       osc2.connect(gain2);
-      gain2.gain.setValueAtTime(0.08, this.ctx.currentTime);
+      gain2.gain.setValueAtTime(0.08 * this.sfxVolume, this.ctx.currentTime);
       gain2.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.06);
       osc2.connect(this.ctx.destination);
       osc2.start();
@@ -228,7 +250,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(900 * pitchMultiplier, this.ctx.currentTime);
       osc.frequency.setValueAtTime(1200 * pitchMultiplier, this.ctx.currentTime + 0.015);
       
-      gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.1 * this.sfxVolume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.035);
     } else if (type === 'friction') {
       // Damped scratching wood/canvas pop noise
@@ -236,7 +258,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(350 * pitchMultiplier, this.ctx.currentTime);
       osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.04);
       
-      gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.15 * this.sfxVolume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.045);
     } else if (type === 'tilt') {
       // Spooky springy wobble pitch slide
@@ -244,7 +266,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(600 * pitchMultiplier, this.ctx.currentTime);
       osc.frequency.exponentialRampToValueAtTime(250, this.ctx.currentTime + 0.05);
       
-      gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.1 * this.sfxVolume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.065);
     } else if (type === 'mass') {
       // Heavy deep wooden thud
@@ -252,7 +274,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(140 * pitchMultiplier, this.ctx.currentTime);
       osc.frequency.exponentialRampToValueAtTime(15, this.ctx.currentTime + 0.09);
       
-      gain.gain.setValueAtTime(0.35, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.35 * this.sfxVolume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
     } else {
       // Standard click fallback
@@ -260,7 +282,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(800 * pitchMultiplier, this.ctx.currentTime);
       osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.02);
 
-      gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.25 * this.sfxVolume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.025);
     }
 
@@ -286,7 +308,7 @@ export class SoundManager {
     filter.type = 'highpass';
     filter.frequency.value = 1000;
 
-    gain.gain.setValueAtTime(0.18, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.18 * this.sfxVolume, this.ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.045);
 
     osc.connect(filter);
@@ -309,7 +331,7 @@ export class SoundManager {
     osc1.type = 'sine';
     osc1.frequency.setValueAtTime(1200, now);
     osc1.frequency.exponentialRampToValueAtTime(800, now + 0.3);
-    gain1.gain.setValueAtTime(0.15, now);
+    gain1.gain.setValueAtTime(0.15 * this.sfxVolume, now);
     gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
     
     const filter1 = this.ctx.createBiquadFilter();
@@ -328,7 +350,7 @@ export class SoundManager {
     osc2.type = 'triangle';
     osc2.frequency.setValueAtTime(150, now);
     osc2.frequency.exponentialRampToValueAtTime(40, now + 0.15);
-    gain2.gain.setValueAtTime(0.3, now);
+    gain2.gain.setValueAtTime(0.3 * this.sfxVolume, now);
     gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
     
     osc2.connect(gain2);
@@ -355,7 +377,7 @@ export class SoundManager {
       osc.frequency.exponentialRampToValueAtTime(slideToPitch, now + duration);
     }
     
-    gainNode.gain.setValueAtTime(volume, now);
+    gainNode.gain.setValueAtTime(volume * this.musicVolume, now);
     gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration);
     
     osc.connect(gainNode);
@@ -393,7 +415,7 @@ export class SoundManager {
         if (Math.random() < 0.4) {
           const notes = [57, 60, 62, 64, 67, 69, 72]; // Am / Dorian pentatonic
           const note = notes[Math.floor(Math.random() * notes.length)];
-          this.playSynthNote(midiToFreq(note + 12), 2.5, 'sine', 0.04);
+          this.playSynthNote(midiToFreq(note + 12), 2.5, 'sine', 0.06);
         }
       } else if (type === 'combat') {
         // Tense minor arpeggio
@@ -401,37 +423,37 @@ export class SoundManager {
         if (step % 2 === 0) {
           const bassNotes = [45, 45, 48, 50, 45, 45, 52, 48]; // A2, C3, D3, E3...
           const bass = bassNotes[(step / 2) % bassNotes.length];
-          this.playSynthNote(midiToFreq(bass), 0.35, 'triangle', 0.08);
+          this.playSynthNote(midiToFreq(bass), 0.35, 'triangle', 0.12);
         }
         // Lead arpeggio
         const leadPattern = [57, 64, 60, 69, 62, 69, 65, 67]; // A3, E4, C4, A4...
         const note = leadPattern[step % leadPattern.length];
-        this.playSynthNote(midiToFreq(note), 0.2, 'sine', 0.03);
+        this.playSynthNote(midiToFreq(note), 0.2, 'sine', 0.05);
       } else if (type === 'elite') {
         // Diminished tension arpeggio
         if (step % 2 === 0) {
           const bassNotes = [39, 42, 45, 48]; // D#2, F#2, A2, C3
           const bass = bassNotes[(step / 2) % bassNotes.length];
-          this.playSynthNote(midiToFreq(bass), 0.28, 'triangle', 0.1);
+          this.playSynthNote(midiToFreq(bass), 0.28, 'triangle', 0.14);
         }
         const leadPattern = [51, 57, 54, 60, 57, 63, 60, 66]; // D#3, A3, F#3, C4...
         const note = leadPattern[step % leadPattern.length];
-        this.playSynthNote(midiToFreq(note), 0.18, 'triangle', 0.04);
+        this.playSynthNote(midiToFreq(note), 0.18, 'triangle', 0.06);
       } else if (type === 'boss') {
         // Chromatic industrial
         if (step % 4 === 0) {
           const bassNotes = [40, 41, 40, 39]; // E2, F2, E2, D#2
           const bass = bassNotes[(step / 4) % bassNotes.length];
-          this.playSynthNote(midiToFreq(bass), 0.35, 'sawtooth', 0.06);
+          this.playSynthNote(midiToFreq(bass), 0.35, 'sawtooth', 0.10);
         }
         // Industrial pulse lead
         const leadPattern = [64, 65, 64, 63, 67, 66, 65, 64, 60, 61, 60, 59, 64, 63, 62, 60];
         const note = leadPattern[step % leadPattern.length];
         if (step % 2 === 0) {
-          this.playSynthNote(midiToFreq(note), 0.14, 'square', 0.02);
+          this.playSynthNote(midiToFreq(note), 0.14, 'square', 0.04);
         } else if (step % 7 === 0) {
           // Creepy pitch slider
-          this.playSynthNote(midiToFreq(note + 12), 0.32, 'sawtooth', 0.02, midiToFreq(note));
+          this.playSynthNote(midiToFreq(note + 12), 0.32, 'sawtooth', 0.04, midiToFreq(note));
         }
       }
 

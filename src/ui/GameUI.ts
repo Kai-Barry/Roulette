@@ -28,6 +28,7 @@ export class GameUI {
   // Codex filter state
   private codexRarityFilter = 'all';
   private codexTypeFilter = 'all';
+  private mobileModeActive = false;
 
   // Forge state
   private hoveredForgeCardId: string | null = null;
@@ -249,6 +250,26 @@ export class GameUI {
     this.engine = engine;
     this.sound = sound;
     this.root = root;
+    
+    // Load persisted settings
+    try {
+      this.sound.musicVolume = parseFloat(localStorage.getItem('settings_musicVolume') ?? '0.7');
+      this.sound.droneVolume = parseFloat(localStorage.getItem('settings_droneVolume') ?? '0.3');
+      this.sound.sfxVolume = parseFloat(localStorage.getItem('settings_sfxVolume') ?? '0.8');
+      this.mobileModeActive = localStorage.getItem('settings_mobileModeActive') === 'true';
+    } catch (e) {
+      console.warn("localStorage settings reading failed:", e);
+    }
+    
+    // Initialize drone volume level
+    this.sound.setDroneVolume(this.sound.droneVolume);
+    
+    if (this.mobileModeActive) {
+      document.body.classList.add('mobile-mode');
+    } else {
+      document.body.classList.remove('mobile-mode');
+    }
+
     this.setupLayout();
     this.render();
   }
@@ -297,6 +318,7 @@ export class GameUI {
               <span id="hud-floor-text" class="value">1 / 7</span>
             </div>
             <button id="hud-abandon-btn" class="abandon-btn">ABANDON</button>
+            <button id="hud-settings-btn" class="debug-btn" style="border-color: #ffd700; color: #ffd700; margin-left: 4px;">SETTINGS</button>
             <button id="debug-toggle-btn" class="debug-btn">DEBUG UI: OFF</button>
             <button id="dev-tools-btn" class="debug-btn" style="border-color: #ffaa00; color: #ffaa00; margin-left: 4px;">DEV TOOLS</button>
           </div>
@@ -422,12 +444,61 @@ export class GameUI {
             </div>
           </div>
 
+          <!-- SETTINGS OVERLAY -->
+          <div id="settings-overlay" class="hidden">
+            <div class="settings-card glass-panel" style="position: relative; padding: 24px; max-width: 420px; width: 90%; margin: auto; border: 1.5px solid var(--color-gold); background: rgba(18, 11, 8, 0.95); box-shadow: 0 0 30px rgba(0,0,0,0.8); text-align: left;">
+              <button id="settings-close-btn" class="btn" style="position: absolute; top: 12px; right: 12px; background: transparent; border: none; font-size: 1.2rem; color: var(--color-gold); cursor: pointer; padding: 0 4px;">✕</button>
+              <h2 class="res-header" style="text-align: center; margin-bottom: 20px; font-family: 'VT323', monospace; color: var(--color-gold); font-size: 2.2rem; border-bottom: 1px solid rgba(197, 159, 81, 0.3); padding-bottom: 8px;">SETTINGS</h2>
+              
+              <!-- Audio settings -->
+              <div class="settings-group" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+                <label style="font-family: 'VT323', monospace; color: var(--color-gold); font-size: 1.3rem; border-left: 3px solid var(--color-gold); padding-left: 8px; margin-bottom: 4px;">AUDIO MIXER</label>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-family: 'VT323', monospace; font-size: 1.1rem; color: #fff;">
+                  <span>Music Volume:</span>
+                  <div style="display: flex; align-items: center; gap: 10px; width: 60%;">
+                    <input type="range" id="vol-music-slider" min="0" max="100" value="70" style="flex: 1; accent-color: var(--color-gold); height: 4px; cursor: pointer;">
+                    <span id="vol-music-lbl" style="width: 35px; text-align: right;">70%</span>
+                  </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-family: 'VT323', monospace; font-size: 1.1rem; color: #fff;">
+                  <span>Drone/Hum:</span>
+                  <div style="display: flex; align-items: center; gap: 10px; width: 60%;">
+                    <input type="range" id="vol-drone-slider" min="0" max="100" value="30" style="flex: 1; accent-color: var(--color-gold); height: 4px; cursor: pointer;">
+                    <span id="vol-drone-lbl" style="width: 35px; text-align: right;">30%</span>
+                  </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-family: 'VT323', monospace; font-size: 1.1rem; color: #fff;">
+                  <span>SFX Volume:</span>
+                  <div style="display: flex; align-items: center; gap: 10px; width: 60%;">
+                    <input type="range" id="vol-sfx-slider" min="0" max="100" value="80" style="flex: 1; accent-color: var(--color-gold); height: 4px; cursor: pointer;">
+                    <span id="vol-sfx-lbl" style="width: 35px; text-align: right;">80%</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Display settings -->
+              <div class="settings-group" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; border-top: 1px solid rgba(197, 159, 81, 0.15); padding-top: 16px;">
+                <label style="font-family: 'VT323', monospace; color: var(--color-gold); font-size: 1.3rem; border-left: 3px solid var(--color-gold); padding-left: 8px; margin-bottom: 4px;">DISPLAY CONFIG</label>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-family: 'VT323', monospace; font-size: 1.1rem; color: #fff;">
+                  <span>Mobile Layout Mode:</span>
+                  <input type="checkbox" id="settings-mobile-checkbox" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--color-gold);">
+                </div>
+                <p style="font-family: 'VT323', monospace; font-size: 0.85rem; color: rgba(236, 224, 216, 0.5); line-height: 1.3; margin: 4px 0 0 0;">
+                  Forces vertical scrolling layouts and scales down elements for smaller screens.
+                </p>
+              </div>
+
+              <button id="settings-apply-btn" class="btn primary-btn pulse-glow" style="width: 100%; font-family: 'VT323', monospace; font-size: 1.3rem; padding: 8px 0; margin-top: 8px;">APPLY SETTINGS</button>
+            </div>
+          </div>
+
           <!-- PANEL: MAIN MENU -->
           <div id="menu-panel" class="panel active">
             <h1 class="game-title">ROULETTE.OS</h1>
             <div class="menu-btn-group">
               <button id="start-run-btn" class="btn primary-btn pulse-glow">ENTER THE TAVERN</button>
               <button id="codex-btn" class="codex-menu-btn">CARD CODEX</button>
+              <button id="menu-settings-btn" class="codex-menu-btn" style="margin-top: 10px; border-color: #ffd700; color: #ffd700;">SETTINGS</button>
             </div>
           </div>
 
@@ -1211,6 +1282,98 @@ export class GameUI {
         this.render();
       }
     });
+
+    // Settings toggles & buttons
+    const settingsOverlay = this.root.querySelector('#settings-overlay');
+    const openSettings = () => {
+      this.sound.playDraw();
+      
+      // Update form fields with current settings values
+      const musicSlider = this.root.querySelector('#vol-music-slider') as HTMLInputElement;
+      const droneSlider = this.root.querySelector('#vol-drone-slider') as HTMLInputElement;
+      const sfxSlider = this.root.querySelector('#vol-sfx-slider') as HTMLInputElement;
+      const mobileCheckbox = this.root.querySelector('#settings-mobile-checkbox') as HTMLInputElement;
+      
+      const musicLbl = this.root.querySelector('#vol-music-lbl') as HTMLElement;
+      const droneLbl = this.root.querySelector('#vol-drone-lbl') as HTMLElement;
+      const sfxLbl = this.root.querySelector('#vol-sfx-lbl') as HTMLElement;
+
+      if (musicSlider) {
+        musicSlider.value = Math.round(this.sound.musicVolume * 100).toString();
+        if (musicLbl) musicLbl.innerText = `${musicSlider.value}%`;
+      }
+      if (droneSlider) {
+        droneSlider.value = Math.round(this.sound.droneVolume * 100).toString();
+        if (droneLbl) droneLbl.innerText = `${droneSlider.value}%`;
+      }
+      if (sfxSlider) {
+        sfxSlider.value = Math.round(this.sound.sfxVolume * 100).toString();
+        if (sfxLbl) sfxLbl.innerText = `${sfxSlider.value}%`;
+      }
+      if (mobileCheckbox) {
+        mobileCheckbox.checked = this.mobileModeActive;
+      }
+      
+      settingsOverlay?.classList.remove('hidden');
+    };
+
+    this.root.querySelector('#hud-settings-btn')?.addEventListener('click', openSettings);
+    this.root.querySelector('#menu-settings-btn')?.addEventListener('click', openSettings);
+
+    const closeSettings = () => {
+      this.sound.playCardSwoosh();
+      settingsOverlay?.classList.add('hidden');
+    };
+
+    this.root.querySelector('#settings-close-btn')?.addEventListener('click', closeSettings);
+
+    // Track slider real-time value updates
+    this.root.querySelector('#vol-music-slider')?.addEventListener('input', (e) => {
+      const val = (e.target as HTMLInputElement).value;
+      const lbl = this.root.querySelector('#vol-music-lbl') as HTMLElement;
+      if (lbl) lbl.innerText = `${val}%`;
+      this.sound.setMusicVolume(parseInt(val) / 100);
+    });
+
+    this.root.querySelector('#vol-drone-slider')?.addEventListener('input', (e) => {
+      const val = (e.target as HTMLInputElement).value;
+      const lbl = this.root.querySelector('#vol-drone-lbl') as HTMLElement;
+      if (lbl) lbl.innerText = `${val}%`;
+      this.sound.setDroneVolume(parseInt(val) / 100);
+    });
+
+    this.root.querySelector('#vol-sfx-slider')?.addEventListener('input', (e) => {
+      const val = (e.target as HTMLInputElement).value;
+      const lbl = this.root.querySelector('#vol-sfx-lbl') as HTMLElement;
+      if (lbl) lbl.innerText = `${val}%`;
+      this.sound.setSfxVolume(parseInt(val) / 100);
+    });
+
+    // Apply button click
+    this.root.querySelector('#settings-apply-btn')?.addEventListener('click', () => {
+      const mobileCheckbox = this.root.querySelector('#settings-mobile-checkbox') as HTMLInputElement;
+      this.mobileModeActive = mobileCheckbox ? mobileCheckbox.checked : false;
+
+      if (this.mobileModeActive) {
+        document.body.classList.add('mobile-mode');
+      } else {
+        document.body.classList.remove('mobile-mode');
+      }
+
+      // Save to localStorage
+      try {
+        localStorage.setItem('settings_musicVolume', this.sound.musicVolume.toString());
+        localStorage.setItem('settings_droneVolume', this.sound.droneVolume.toString());
+        localStorage.setItem('settings_sfxVolume', this.sound.sfxVolume.toString());
+        localStorage.setItem('settings_mobileModeActive', this.mobileModeActive.toString());
+      } catch (err) {
+        console.warn("Saving settings to localStorage failed:", err);
+      }
+
+      this.sound.playBell();
+      settingsOverlay?.classList.add('hidden');
+      this.render(); // full UI re-layout and render!
+    });
   }
 
   private placeEngineBet(type: 'red' | 'black' | 'green' | 'number' | 'odd' | 'even' | 'gold' | 'purple' | 'cyan' | 'crimson', amount: number, numberValue?: number) {
@@ -1605,6 +1768,14 @@ export class GameUI {
 
   render() {
     const state = this.engine.runState;
+
+    // Update body state class for mobile layout selectors (preserving debug-ui-active)
+    const wasDebug = document.body.classList.contains('debug-ui-active');
+    document.body.className = this.mobileModeActive ? 'mobile-mode' : '';
+    if (wasDebug) {
+      document.body.classList.add('debug-ui-active');
+    }
+    document.body.classList.add(`state-${state.gameState.toLowerCase()}`);
 
     // Handle encounter-specific procedural music
     if (state.gameState === 'COMBAT') {
@@ -2631,18 +2802,24 @@ export class GameUI {
       const otherNums = activeWheel.numbers.filter(n => !greenNums.includes(n)).sort((a, b) => a - b);
       
       const predictionSector = battle.predictionSector || [];
+      const goldFoils = battle.boardModifiers.goldFoils || [];
+      const copperPlates = battle.boardModifiers.copperPlates || [];
       
       let gridHtml = '';
       // Render green numbers
       greenNums.forEach(num => {
         const isPredicted = predictionSector.includes(num) ? ' predicted' : '';
-        gridHtml += `<div class="num-cell num-green${isPredicted}" data-num="${num}">${num}</div>`;
+        const isGoldFoil = goldFoils.includes(num) ? ' gold-foil' : '';
+        const isCopperPlate = copperPlates.includes(num) ? ' copper-plate' : '';
+        gridHtml += `<div class="num-cell num-green${isPredicted}${isGoldFoil}${isCopperPlate}" data-num="${num}">${num}</div>`;
       });
       // Render standard numbers
       otherNums.forEach(num => {
         const color = getSlotColor(num, activeWheel, battle.boardModifiers);
         const isPredicted = predictionSector.includes(num) ? ' predicted' : '';
-        gridHtml += `<div class="num-cell num-${color}${isPredicted}" data-num="${num}">${num}</div>`;
+        const isGoldFoil = goldFoils.includes(num) ? ' gold-foil' : '';
+        const isCopperPlate = copperPlates.includes(num) ? ' copper-plate' : '';
+        gridHtml += `<div class="num-cell num-${color}${isPredicted}${isGoldFoil}${isCopperPlate}" data-num="${num}">${num}</div>`;
       });
       
       numGridContainer.innerHTML = gridHtml;
@@ -2768,12 +2945,27 @@ export class GameUI {
           label = `NUMBER ${bet.numberValue} (<span class="text-${color}">${color}</span>)`;
         }
         return `
-          <div class="active-bet-item">
-            <span>${label}:</span>
-            <span class="text-gold">${bet.amount} ⚡</span>
+          <div class="active-bet-item" style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; margin-bottom: 4px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+            <span>${label}: <span class="text-gold">${bet.amount} ⚡</span></span>
+            <button class="remove-bet-btn" data-type="${bet.type}" ${bet.numberValue !== undefined ? `data-num="${bet.numberValue}"` : ''} style="background: none; border: none; color: #ff5252; font-size: 14px; font-weight: bold; cursor: pointer; padding: 0 4px; display: inline-block;">×</button>
           </div>
         `;
       }).join('');
+
+      // Add click listeners to remove buttons
+      const removeBtns = betsListEl.querySelectorAll('.remove-bet-btn');
+      removeBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const type = btn.getAttribute('data-type')!;
+          const numAttr = btn.getAttribute('data-num');
+          const numberValue = numAttr !== null ? parseInt(numAttr) : undefined;
+          
+          this.sound.playCardSwoosh();
+          this.engine.removeBet(type, numberValue);
+          this.render();
+        });
+      });
     }
 
     // Spin Button availability

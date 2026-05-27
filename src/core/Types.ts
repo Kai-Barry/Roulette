@@ -15,6 +15,7 @@ export interface Card {
   type: CardType;
   rarity: CardRarity;
   effectId: string; // Identifier for logic lookups
+  markedSlots?: number[];
 }
 
 export interface Relic {
@@ -167,6 +168,7 @@ export interface BattleState {
   enemyWheel: WheelConfig;
   playerBlock: number; // Shield value
   predictionSector?: number[]; // List of numbers predicted to win
+  predictionOffset?: number;
   spinSeedAngle?: number;
   ballSeedAngle?: number;
   spinSeedSpeed?: number;

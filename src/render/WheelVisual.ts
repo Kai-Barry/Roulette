@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Card, Enemy, WheelConfig, PhysicsModifiers, ForgeCard, BoardUpgrade } from '../core/Types';
+import { Card, Enemy, WheelConfig, PhysicsModifiers, ForgeCard, BoardUpgrade, BoardModifiers } from '../core/Types';
 import { getSlotColor, WHEEL_NUMBERS } from '../physics/RoulettePhysics';
 import { formatDescription } from '../cards/CardDatabase';
 
@@ -24,7 +24,7 @@ export class WheelVisual {
     this.buildWheel(isEnemy, config);
   }
 
-  rebuildWheel(isEnemy: boolean, config: WheelConfig, predictionSector: number[] = []) {
+  rebuildWheel(isEnemy: boolean, config: WheelConfig, predictionSector: number[] = [], boardMods?: BoardModifiers) {
     this.isEnemyWheel = isEnemy;
     // Dispose previous geometries and materials to avoid memory leaks
     this.group.traverse((child) => {
@@ -41,7 +41,7 @@ export class WheelVisual {
       this.group.remove(this.group.children[0]);
     }
 
-    this.buildWheel(isEnemy, config, predictionSector);
+    this.buildWheel(isEnemy, config, predictionSector, boardMods);
   }
 
   setBallVisible(visible: boolean) {
@@ -50,7 +50,7 @@ export class WheelVisual {
     }
   }
 
-  private buildWheel(isEnemy: boolean, config: WheelConfig, predictionSector: number[] = []) {
+  private buildWheel(isEnemy: boolean, config: WheelConfig, predictionSector: number[] = [], boardMods?: BoardModifiers) {
     const slotCount = config.numbers.length;
     const slotAngle = (Math.PI * 2) / slotCount;
 
@@ -107,7 +107,7 @@ export class WheelVisual {
     // Number Ring
     const ringGeo = new THREE.CircleGeometry(0.8, 64);
     const ringMat = new THREE.MeshBasicMaterial({
-      map: this.createWheelTexture(isEnemy, config, predictionSector),
+      map: this.createWheelTexture(isEnemy, config, predictionSector, boardMods),
       side: THREE.DoubleSide,
       fog: false
     });
@@ -191,7 +191,7 @@ export class WheelVisual {
     }
   }
 
-  private createWheelTexture(isEnemy: boolean, config: WheelConfig, predictionSector: number[] = []): THREE.Texture {
+  private createWheelTexture(isEnemy: boolean, config: WheelConfig, predictionSector: number[] = [], boardMods?: BoardModifiers): THREE.Texture {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
@@ -207,7 +207,7 @@ export class WheelVisual {
       const startAngle = i * slotAngle - slotAngle / 2;
       const endAngle = i * slotAngle + slotAngle / 2;
       const num = config.numbers[i];
-      const color = getSlotColor(num, config);
+      const color = getSlotColor(num, config, boardMods);
 
       let colorStr = '#2ebd42'; // player green
       if (color === 'red') {
@@ -241,6 +241,33 @@ export class WheelVisual {
         ctx.closePath();
         ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
         ctx.fill();
+      }
+
+      // Draw Gold Foil or Copper Plate highlights
+      const isGoldFoil = boardMods && boardMods.goldFoils && boardMods.goldFoils.includes(num);
+      const isCopperPlate = boardMods && boardMods.copperPlates && boardMods.copperPlates.includes(num);
+      if (isGoldFoil) {
+        ctx.save();
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = '#ffd700'; // gold glow
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, 230, startAngle, endAngle);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, 165, startAngle, endAngle);
+        ctx.stroke();
+        ctx.restore();
+      } else if (isCopperPlate) {
+        ctx.save();
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = '#ffffff'; // white glow
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, 230, startAngle, endAngle);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, 165, startAngle, endAngle);
+        ctx.stroke();
+        ctx.restore();
       }
     }
 
@@ -486,9 +513,10 @@ export class CardVisual {
   
   constructor(card: Card, isPointsMode: boolean = false) {
     // Create card textured with procedural Canvas
+    const scale = 2;
     const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 360;
+    canvas.width = 256 * scale;
+    canvas.height = 360 * scale;
     const ctx = canvas.getContext('2d')!;
 
     // Draw card background
@@ -526,101 +554,101 @@ export class CardVisual {
                         card.type === 'board' ? '#81c784' : 
                         card.type === 'payout' ? '#e57373' : '#ffd54f';
     }
-    ctx.lineWidth = 12;
-    ctx.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
+    ctx.lineWidth = 12 * scale;
+    ctx.strokeRect(6 * scale, 6 * scale, canvas.width - 12 * scale, canvas.height - 12 * scale);
     
     // Top header background
     ctx.fillStyle = card.rarity === 'legendary' ? '#380a47' :
                     card.rarity === 'rare' ? '#3d2b0e' :
                     card.rarity === 'uncommon' ? '#122030' : '#2d2218';
-    ctx.fillRect(12, 12, canvas.width - 24, 60);
+    ctx.fillRect(12 * scale, 12 * scale, canvas.width - 24 * scale, 60 * scale);
 
     // Draw Cost
     ctx.fillStyle = card.rarity === 'legendary' ? '#ff5722' :
                     card.rarity === 'rare' ? '#ffd700' : '#ffb300';
-    ctx.font = 'bold 24px Courier New';
-    ctx.fillText(`${card.cost}⚡`, canvas.width - 60, 48);
+    ctx.font = 'bold ' + (24 * scale) + 'px "Courier Prime", monospace';
+    ctx.fillText(`${card.cost}⚡`, canvas.width - 60 * scale, 48 * scale);
 
     // Draw Name
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px Courier New';
-    ctx.fillText(card.name.substring(0, 16), 24, 48);
+    ctx.font = 'bold ' + (18 * scale) + 'px "Courier Prime", monospace';
+    ctx.fillText(card.name.substring(0, 16), 24 * scale, 48 * scale);
 
     // Draw Type & Rarity Label
     ctx.fillStyle = card.rarity === 'legendary' ? '#ff5722' :
                     card.rarity === 'rare' ? '#ffd700' :
                     card.rarity === 'uncommon' ? '#4fc3f7' : '#aaaaaa';
-    ctx.font = 'bold italic 13px Courier New';
-    ctx.fillText(`${card.type.toUpperCase()} · ${card.rarity.toUpperCase()}`, 24, 95);
+    ctx.font = 'bold italic ' + (13 * scale) + 'px "Courier Prime", monospace';
+    ctx.fillText(`${card.type.toUpperCase()} · ${card.rarity.toUpperCase()}`, 24 * scale, 95 * scale);
 
     // Draw Card Illustration placeholder
     ctx.fillStyle = card.rarity === 'legendary' ? '#1c0525' :
                     card.rarity === 'rare' ? '#201608' :
                     card.rarity === 'uncommon' ? '#0d131a' : '#17110c';
-    ctx.fillRect(24, 110, canvas.width - 48, 110);
+    ctx.fillRect(24 * scale, 110 * scale, canvas.width - 48 * scale, 110 * scale);
     
     // Draw simple geometric shapes representing card type
     ctx.strokeStyle = card.rarity === 'legendary' ? '#ff5722' :
                       card.rarity === 'rare' ? '#ffd700' :
                       card.rarity === 'uncommon' ? '#4fc3f7' : '#3e2f22';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(30, 115, canvas.width - 60, 100);
+    ctx.lineWidth = 4 * scale;
+    ctx.strokeRect(30 * scale, 115 * scale, canvas.width - 60 * scale, 100 * scale);
     
     ctx.fillStyle = ctx.strokeStyle;
     if (card.type === 'physics') {
       // Draw ball path
       ctx.beginPath();
-      ctx.arc(128, 165, 30, 0, Math.PI * 2);
+      ctx.arc(128 * scale, 165 * scale, 30 * scale, 0, Math.PI * 2);
       ctx.stroke();
     } else if (card.type === 'board') {
       // Draw grid
-      ctx.fillRect(100, 135, 56, 56);
+      ctx.fillRect(100 * scale, 135 * scale, 56 * scale, 56 * scale);
     } else if (card.type === 'payout') {
       // Draw skull/multiplier
-      ctx.font = 'bold 36px Courier New';
+      ctx.font = 'bold ' + (36 * scale) + 'px "Courier Prime", monospace';
       ctx.fillStyle = card.rarity === 'legendary' ? '#ff5722' :
                       card.rarity === 'rare' ? '#ffd700' : '#e57373';
-      ctx.fillText('x2.5', 90, 175);
+      ctx.fillText('x2.5', 90 * scale, 175 * scale);
     } else {
       // Utility gear/dice
-      ctx.fillRect(108, 145, 40, 40);
+      ctx.fillRect(108 * scale, 145 * scale, 40 * scale, 40 * scale);
     }
 
     // Add stars to illustration block for uncommon/rare/legendary
     if (card.rarity === 'legendary') {
       ctx.fillStyle = '#ff5722';
-      ctx.font = '16px Courier New';
-      ctx.fillText('★ ★ ★ ★', canvas.width - 100, 135);
+      ctx.font = (16 * scale) + 'px "Courier Prime", monospace';
+      ctx.fillText('★ ★ ★ ★', canvas.width - 100 * scale, 135 * scale);
     } else if (card.rarity === 'rare') {
       ctx.fillStyle = '#ffd700';
-      ctx.font = '16px Courier New';
-      ctx.fillText('★ ★ ★', canvas.width - 90, 135);
+      ctx.font = (16 * scale) + 'px "Courier Prime", monospace';
+      ctx.fillText('★ ★ ★', canvas.width - 90 * scale, 135 * scale);
     } else if (card.rarity === 'uncommon') {
       ctx.fillStyle = '#4fc3f7';
-      ctx.font = '16px Courier New';
-      ctx.fillText('★ ★', canvas.width - 80, 135);
+      ctx.font = (16 * scale) + 'px "Courier Prime", monospace';
+      ctx.fillText('★ ★', canvas.width - 80 * scale, 135 * scale);
     }
 
     // Draw Description (Word wrapped)
     ctx.fillStyle = '#dddddd';
-    ctx.font = '14px Courier New';
+    ctx.font = (14 * scale) + 'px "Courier Prime", monospace';
     const formattedDesc = formatDescription(card.description, isPointsMode);
     const words = formattedDesc.split(' ');
     let line = '';
-    let y = 245;
+    let y = 245 * scale;
     
     for (let n = 0; n < words.length; n++) {
       const testLine = line + words[n] + ' ';
       const metrics = ctx.measureText(testLine);
-      if (metrics.width > (canvas.width - 48) && n > 0) {
-        ctx.fillText(line, 24, y);
+      if (metrics.width > (canvas.width - 48 * scale) && n > 0) {
+        ctx.fillText(line, 24 * scale, y);
         line = words[n] + ' ';
-        y += 20;
+        y += 20 * scale;
       } else {
         line = testLine;
       }
     }
-    ctx.fillText(line, 24, y);
+    ctx.fillText(line, 24 * scale, y);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;

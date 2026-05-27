@@ -241,6 +241,7 @@ export class GameEngine {
       activeWheelOwner: 'player',
       playerBlock: 0,
       predictionSector: [],
+      predictionOffset: Math.random(),
       spinSeedAngle,
       ballSeedAngle,
       spinSeedSpeed,
@@ -347,6 +348,21 @@ export class GameEngine {
     return true;
   }
 
+  removeBet(type: string, numberValue?: number) {
+    if (!this.battleState) return false;
+    const index = this.battleState.bets.findIndex(b => 
+      b.type === type && (type !== 'number' || b.numberValue === numberValue)
+    );
+    if (index !== -1) {
+      const bet = this.battleState.bets[index];
+      this.battleState.chipsPool += bet.amount;
+      this.battleState.bets.splice(index, 1);
+      this.updatePrediction();
+      return true;
+    }
+    return false;
+  }
+
   clearBets() {
     if (!this.battleState) return;
     // Refund chips
@@ -428,9 +444,12 @@ export class GameEngine {
     const totalSlots = activeWheel.numbers.length;
     const sector: number[] = [];
 
-    // Build the prediction sector: center slot ± half of predSize
-    const halfSpread = Math.floor(predSize / 2);
-    for (let offset = -halfSpread; offset <= halfSpread; offset++) {
+    // Let the correct landing slot be at a deterministic random position within the predicted sector
+    const offsetRatio = this.battleState.predictionOffset ?? 0.5;
+    const targetIdx = Math.floor(offsetRatio * predSize);
+
+    for (let i = 0; i < predSize; i++) {
+      const offset = i - targetIdx;
       const idx = ((landedIdx + offset) % totalSlots + totalSlots) % totalSlots;
       sector.push(activeWheel.numbers[idx]);
     }
@@ -894,6 +913,9 @@ export class GameEngine {
 
     // RETAIN hand cards across turns! Only discard activePlayedCards
     if (this.battleState.activePlayedCards) {
+      this.battleState.activePlayedCards.forEach(c => {
+        delete c.markedSlots;
+      });
       this.battleState.discardPile.push(...this.battleState.activePlayedCards);
     }
     this.battleState.activePlayedCards = [];
@@ -929,6 +951,7 @@ export class GameEngine {
     // Reset block and prediction for new turn
     this.battleState.playerBlock = 0;
     this.battleState.predictionSector = [];
+    this.battleState.predictionOffset = Math.random();
 
     // Generate fresh spin seeds for next turn
     this.battleState.spinSeedAngle = Math.random() * Math.PI * 2;
@@ -1192,6 +1215,7 @@ export class GameEngine {
       return false;
     }
     
+    delete card.markedSlots;
     return true;
   }
 
@@ -1742,13 +1766,13 @@ export class GameEngine {
     // 1. Determine enemy card pool based on theme
     const themeCards: string[] = [];
     if (enemy.spriteName === 'wraith') {
-      themeCards.push('crimson_surge', 'dark_fury', 'attraction_coil', 'repulsion_coil');
+      themeCards.push('crimson_double', 'dark_fury', 'attraction_coil', 'repulsion_coil');
     } else if (enemy.spriteName === 'croupier') {
       themeCards.push('green_greed', 'steel_barricade', 'scrap_shield');
     } else if (enemy.spriteName === 'decay_wheel') {
       themeCards.push('friction_oil', 'focus_sight');
     } else if (enemy.isBoss) {
-      themeCards.push('crimson_surge', 'dark_fury', 'green_greed', 'predictive_sight', 'eagle_eye', 'fortress_shield');
+      themeCards.push('crimson_double', 'dark_fury', 'green_greed', 'predictive_sight', 'eagle_eye', 'fortress_shield');
     } else if (enemy.isElite) {
       themeCards.push('predictive_sight', 'steel_barricade', 'attraction_coil', 'repulsion_coil');
     } else {

@@ -349,12 +349,21 @@ export class CardHandler {
         break;
 
       case 'BLOOD_SPILL':
-        for (let k = 0; k < 3; k++) {
-          const randSlot = Math.floor(Math.random() * 37);
-          if (!battleState.boardModifiers.convertNumbersToRed.includes(randSlot)) {
-            battleState.boardModifiers.convertNumbersToRed.push(randSlot);
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          const slots: number[] = [];
+          for (let k = 0; k < 3; k++) {
+            const randSlot = Math.floor(Math.random() * 37);
+            if (!slots.includes(randSlot)) {
+              slots.push(randSlot);
+            }
           }
+          card.markedSlots = slots;
         }
+        card.markedSlots.forEach(slot => {
+          if (!battleState.boardModifiers.convertNumbersToRed.includes(slot)) {
+            battleState.boardModifiers.convertNumbersToRed.push(slot);
+          }
+        });
         break;
 
       case 'NUMBER_DUPLICATE':
@@ -366,29 +375,41 @@ export class CardHandler {
         break;
 
       case 'LUCKY_ZONE':
-        for (let z = 0; z < 3; z++) {
-          const slot = Math.floor(Math.random() * 37);
-          battleState.boardModifiers.luckyZones.push(slot);
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          const slots: number[] = [];
+          for (let z = 0; z < 3; z++) {
+            slots.push(Math.floor(Math.random() * 37));
+          }
+          card.markedSlots = slots;
         }
+        battleState.boardModifiers.luckyZones.push(...card.markedSlots);
         break;
 
       case 'CURSED_ZONE':
-        for (let z = 0; z < 5; z++) {
-          const slot = Math.floor(Math.random() * 37);
-          battleState.boardModifiers.cursedZones.push(slot);
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          const slots: number[] = [];
+          for (let z = 0; z < 5; z++) {
+            slots.push(Math.floor(Math.random() * 37));
+          }
+          card.markedSlots = slots;
         }
+        battleState.boardModifiers.cursedZones.push(...card.markedSlots);
         break;
 
       case 'CHIP_MINE':
-        const chipSlot = Math.floor(Math.random() * 37);
-        battleState.boardModifiers.chipMines[chipSlot] = 15;
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          card.markedSlots = [Math.floor(Math.random() * 37)];
+        }
+        battleState.boardModifiers.chipMines![card.markedSlots[0]] = 15;
         break;
 
 
 
       case 'SHIELD_GENERATOR':
-        const shieldSlot = Math.floor(Math.random() * 37);
-        battleState.boardModifiers.shieldGenerators[shieldSlot] = 12;
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          card.markedSlots = [Math.floor(Math.random() * 37)];
+        }
+        battleState.boardModifiers.shieldGenerators![card.markedSlots[0]] = 12;
         break;
 
       case 'ZERO_ECLIPSE':
@@ -405,27 +426,41 @@ export class CardHandler {
         break;
 
       case 'DANGER_ZONE':
-        for (let z = 0; z < 5; z++) {
-          const slot = Math.floor(Math.random() * 37);
-          battleState.boardModifiers.dangerZones[slot] = 50;
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          const slots: number[] = [];
+          for (let z = 0; z < 5; z++) {
+            slots.push(Math.floor(Math.random() * 37));
+          }
+          card.markedSlots = slots;
         }
+        card.markedSlots.forEach(slot => {
+          battleState.boardModifiers.dangerZones![slot] = 50;
+        });
         break;
 
       case 'GOLD_FOIL':
-        const gfSlot = Math.floor(Math.random() * 37);
-        battleState.boardModifiers.goldFoils.push(gfSlot);
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          card.markedSlots = [Math.floor(Math.random() * 37)];
+        }
+        battleState.boardModifiers.goldFoils.push(...card.markedSlots);
         break;
 
       case 'COPPER_PLATE':
-        for (let z = 0; z < 3; z++) {
-          const slot = Math.floor(Math.random() * 37);
-          battleState.boardModifiers.copperPlates.push(slot);
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          const slots: number[] = [];
+          for (let z = 0; z < 3; z++) {
+            slots.push(Math.floor(Math.random() * 37));
+          }
+          card.markedSlots = slots;
         }
+        battleState.boardModifiers.copperPlates.push(...card.markedSlots);
         break;
 
       case 'VOID_HOLE':
-        const vhSlot = Math.floor(Math.random() * 37);
-        battleState.boardModifiers.voidHoles.push(vhSlot);
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          card.markedSlots = [Math.floor(Math.random() * 37)];
+        }
+        battleState.boardModifiers.voidHoles.push(...card.markedSlots);
         break;
 
 

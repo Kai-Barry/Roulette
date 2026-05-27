@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GameEngine } from '../core/GameEngine';
 import { WheelVisual, CardVisual, EnemyVisual, ForgeCardVisual, ShopItemVisual, EventChoiceVisual } from './WheelVisual';
 import { PS1Shader } from './PS1Shader';
-import { Card, WheelConfig, BoardUpgrade } from '../core/Types';
+import { Card, WheelConfig, BoardUpgrade, BoardModifiers } from '../core/Types';
 import { getSlotColor } from '../physics/RoulettePhysics';
 import { SoundManager } from '../ui/SoundManager';
 import { BOARD_UPGRADES } from '../core/WheelUpgrades';
@@ -149,8 +149,8 @@ export class RenderManager {
   activeHoveredCell: { type: string; numberValue?: number } | null = null;
 
   // Resolution parameters
-  readonly RENDER_WIDTH = 960;
-  readonly RENDER_HEIGHT = 720;
+  readonly RENDER_WIDTH = 1920;
+  readonly RENDER_HEIGHT = 1440;
 
   onCardClicked?: (cardId: string) => void;
   onPlayedCardClicked?: (cardId: string) => void;
@@ -212,8 +212,8 @@ export class RenderManager {
     const battle = this.engine.battleState;
     if (!battle) return;
     
-    this.wheelVis.rebuildWheel(false, battle.playerWheel, battle.predictionSector);
-    this.enemyWheelVis.rebuildWheel(true, battle.enemyWheel, []);
+    this.wheelVis.rebuildWheel(false, battle.playerWheel, battle.predictionSector, battle.boardModifiers);
+    this.enemyWheelVis.rebuildWheel(true, battle.enemyWheel, [], battle.boardModifiers);
     this.enemyVis.rebuildEnemy(battle.enemy.spriteName);
     
     // Also reset active states
@@ -226,7 +226,7 @@ export class RenderManager {
       oldMat.dispose();
       
       this.playerFeltMesh.material = new THREE.MeshBasicMaterial({
-        map: this.createFeltTexture(false),
+        map: this.createFeltTexture(false, battle.boardModifiers),
         fog: false
       });
     }
@@ -237,7 +237,7 @@ export class RenderManager {
       oldMat.dispose();
       
       this.enemyFeltMesh.material = new THREE.MeshBasicMaterial({
-        map: this.createFeltTexture(true),
+        map: this.createFeltTexture(true, battle.boardModifiers),
         fog: false
       });
     }
@@ -315,7 +315,7 @@ export class RenderManager {
 
     // 2c. 3D Bell Turn Trigger
     this.bellGroup = new THREE.Group();
-    this.bellGroup.position.set(0.27, 0.005, 0.75);
+    this.bellGroup.position.set(0.72, 0.005, 0.55); // Moved off the board to the right side
     this.scene.add(this.bellGroup);
 
     const bellBaseGeo = new THREE.CylinderGeometry(0.06, 0.065, 0.015, 10);
@@ -350,22 +350,22 @@ export class RenderManager {
 
     // 2d. Player source chip stacks labels plate
     const labelsCanvas = document.createElement('canvas');
-    labelsCanvas.width = 512;
-    labelsCanvas.height = 128;
+    labelsCanvas.width = 1024;
+    labelsCanvas.height = 256;
     const lCtx = labelsCanvas.getContext('2d')!;
     lCtx.fillStyle = '#2b1b14'; // dark wood back
-    lCtx.fillRect(0, 0, 512, 128);
+    lCtx.fillRect(0, 0, 1024, 256);
     lCtx.strokeStyle = '#c59f51'; // gold border
-    lCtx.lineWidth = 6;
-    lCtx.strokeRect(3, 3, 506, 122);
+    lCtx.lineWidth = 12;
+    lCtx.strokeRect(6, 6, 1012, 244);
 
     lCtx.fillStyle = '#ffffff';
-    lCtx.font = 'bold 36px "Courier Prime", monospace';
+    lCtx.font = 'bold 72px "Courier Prime", monospace';
     lCtx.textAlign = 'center';
     lCtx.textBaseline = 'middle';
-    lCtx.fillText('10 ⚡', 512 / 6, 64);
-    lCtx.fillText('5 ⚡', 512 / 2, 64);
-    lCtx.fillText('1 ⚡', (512 * 5) / 6, 64);
+    lCtx.fillText('10 ⚡', 1024 / 6, 128);
+    lCtx.fillText('5 ⚡', 1024 / 2, 128);
+    lCtx.fillText('1 ⚡', (1024 * 5) / 6, 128);
 
     const labelsTex = new THREE.CanvasTexture(labelsCanvas);
     labelsTex.colorSpace = THREE.SRGBColorSpace;
@@ -1322,7 +1322,7 @@ export class RenderManager {
     return { row1, row2 };
   }
 
-  private createFeltTexture(isEnemy: boolean): THREE.Texture {
+  private createFeltTexture(isEnemy: boolean, boardMods?: BoardModifiers): THREE.Texture {
     const canvas = document.createElement('canvas');
     canvas.width = 1024;
     canvas.height = 512;
@@ -1425,7 +1425,58 @@ export class RenderManager {
           ctx.fillRect(x, y, colWidth - 2, rowHeight - 2);
           ctx.restore();
         }
+
+        // Draw Gold Foil or Copper Plate highlights
+        const goldFoils = boardMods?.goldFoils || [];
+        const copperPlates = boardMods?.copperPlates || [];
+        const isGoldFoil = goldFoils.includes(num);
+        const isCopperPlate = copperPlates.includes(num);
+
+        if (isGoldFoil) {
+          ctx.save();
+          ctx.strokeStyle = '#ffd700';
+          ctx.lineWidth = 4;
+          ctx.strokeRect(x + 2, y + 2, colWidth - 6, rowHeight - 6);
+          // Draw a small gold star in corner
+          ctx.fillStyle = '#ffd700';
+          ctx.font = 'bold 20px "Courier Prime", monospace';
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'top';
+          ctx.fillText('★', x + colWidth - 6, y + 6);
+          ctx.restore();
+        } else if (isCopperPlate) {
+          ctx.save();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 4;
+          ctx.strokeRect(x + 2, y + 2, colWidth - 6, rowHeight - 6);
+          // Draw a small copper star in corner
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 20px "Courier Prime", monospace';
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'top';
+          ctx.fillText('✦', x + colWidth - 6, y + 6);
+          ctx.restore();
+        }
       }
+    }
+
+    // Highlight green sector if any green number is gold/copper foil
+    const goldFoils = boardMods?.goldFoils || [];
+    const copperPlates = boardMods?.copperPlates || [];
+    const greenGoldFoil = activeWheel.greenNumbers.some((n: number) => goldFoils.includes(n));
+    const greenCopperPlate = activeWheel.greenNumbers.some((n: number) => copperPlates.includes(n));
+    if (greenGoldFoil) {
+      ctx.save();
+      ctx.strokeStyle = '#ffd700';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(42, 42, 116, 296);
+      ctx.restore();
+    } else if (greenCopperPlate) {
+      ctx.save();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(42, 42, 116, 296);
+      ctx.restore();
     }
 
     // Clear and compute layout arrays
@@ -1901,6 +1952,7 @@ export class RenderManager {
     let pressedShopItemId: string | null = null;
     let isPressedOnShopBell = false;
     let pressedEventChoiceId: string | null = null;
+    let pressedPlacedChip: THREE.Object3D | null = null;
 
     const getMouseCoords = (e: PointerEvent) => {
       const rect = this.renderer.domElement.getBoundingClientRect();
@@ -2001,15 +2053,15 @@ export class RenderManager {
         }
       }
 
-      // 2. Check source chips stack and bell hits
-      const draggableObjects: THREE.Object3D[] = [];
+      // 2. Check source chips stack, bell, and placed chips hits
+      const interactableObjects: THREE.Object3D[] = [];
       this.scene.traverse((obj) => {
-        if (obj.userData && (obj.userData.isSourceStack || obj.userData.isBell)) {
-          draggableObjects.push(obj);
+        if (obj.userData && (obj.userData.isSourceStack || obj.userData.isBell || obj.userData.isPlacedChip)) {
+          interactableObjects.push(obj);
         }
       });
 
-      const hits = this.raycaster.intersectObjects(draggableObjects);
+      const hits = this.raycaster.intersectObjects(interactableObjects);
       if (hits.length > 0) {
         const hitObj = hits[0].object;
         if (hitObj.userData.isSourceStack) {
@@ -2017,10 +2069,18 @@ export class RenderManager {
           pressedCardId = null;
           isPressedOnBell = false;
           isPressedOnPlayedCard = false;
+          pressedPlacedChip = null;
         } else if (hitObj.userData.isBell) {
           isPressedOnBell = true;
           pressedSourceDenom = 0;
           pressedCardId = null;
+          isPressedOnPlayedCard = false;
+          pressedPlacedChip = null;
+        } else if (hitObj.userData.isPlacedChip) {
+          pressedPlacedChip = hitObj;
+          pressedSourceDenom = 0;
+          pressedCardId = null;
+          isPressedOnBell = false;
           isPressedOnPlayedCard = false;
         }
       } else {
@@ -2028,6 +2088,7 @@ export class RenderManager {
         isPressedOnBell = false;
         pressedCardId = null;
         isPressedOnPlayedCard = false;
+        pressedPlacedChip = null;
       }
     });
 
@@ -2205,6 +2266,15 @@ export class RenderManager {
           } else if (isPressedOnBell && this.onBellClicked) {
             this.bellShakeTime = 0.15;
             this.onBellClicked();
+          } else if (pressedPlacedChip) {
+            const betType = pressedPlacedChip.userData.betType;
+            const numVal = pressedPlacedChip.userData.numberValue;
+            this.engine.removeBet(betType, numVal);
+            this.syncChips();
+            if (this.onBetPlaced) {
+              this.onBetPlaced();
+            }
+            this.sound.playCardSwoosh();
           }
         }
       }
@@ -2213,6 +2283,7 @@ export class RenderManager {
       isPressedOnBell = false;
       pressedCardId = null;
       isPressedOnPlayedCard = false;
+      pressedPlacedChip = null;
     });
 
     this.container.addEventListener('pointerleave', () => {
@@ -2228,6 +2299,7 @@ export class RenderManager {
       }
       pressedSourceDenom = 0;
       isPressedOnBell = false;
+      pressedPlacedChip = null;
       pressedCardId = null;
       isPressedOnPlayedCard = false;
     });
@@ -2308,9 +2380,10 @@ export class RenderManager {
 
   playOpponentActionAnimation(intent: { type: string; value: number; description: string }, betType: string, numberValue?: number, cardToPlay?: Card) {
     // 1. Create intent card mesh
+    const scale = 2;
     const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 360;
+    canvas.width = 256 * scale;
+    canvas.height = 360 * scale;
     const ctx = canvas.getContext('2d')!;
 
     // Dark red creepy background
@@ -2319,50 +2392,50 @@ export class RenderManager {
 
     // Gold border
     ctx.strokeStyle = '#c59f51';
-    ctx.lineWidth = 12;
-    ctx.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
+    ctx.lineWidth = 12 * scale;
+    ctx.strokeRect(6 * scale, 6 * scale, canvas.width - 12 * scale, canvas.height - 12 * scale);
 
     // Header background
     ctx.fillStyle = '#170503';
-    ctx.fillRect(12, 12, canvas.width - 24, 60);
+    ctx.fillRect(12 * scale, 12 * scale, canvas.width - 24 * scale, 60 * scale);
 
     // Name & Cost
     ctx.fillStyle = '#ffffff';
     ctx.textBaseline = 'middle';
     if (cardToPlay) {
       // Draw card name
-      ctx.font = 'bold 15px "Courier Prime", monospace';
-      ctx.fillText(cardToPlay.name.toUpperCase(), 20, 42);
+      ctx.font = 'bold ' + (15 * scale) + 'px "Courier Prime", monospace';
+      ctx.fillText(cardToPlay.name.toUpperCase(), 20 * scale, 42 * scale);
       
       // Draw card cost
       ctx.fillStyle = '#ffca28';
-      ctx.font = 'bold 22px "Courier Prime", monospace';
+      ctx.font = 'bold ' + (22 * scale) + 'px "Courier Prime", monospace';
       ctx.textAlign = 'right';
-      ctx.fillText(`${cardToPlay.cost}⚡`, canvas.width - 20, 42);
+      ctx.fillText(`${cardToPlay.cost}⚡`, canvas.width - 20 * scale, 42 * scale);
       ctx.textAlign = 'left';
     } else {
-      ctx.font = 'bold 20px "Courier Prime", monospace';
-      ctx.fillText(intent.type.toUpperCase(), 24, 42);
+      ctx.font = 'bold ' + (20 * scale) + 'px "Courier Prime", monospace';
+      ctx.fillText(intent.type.toUpperCase(), 24 * scale, 42 * scale);
 
       // Value
       if (intent.value > 0) {
         ctx.fillStyle = '#ef5350';
-        ctx.font = 'bold 24px "Courier Prime", monospace';
+        ctx.font = 'bold ' + (24 * scale) + 'px "Courier Prime", monospace';
         ctx.textAlign = 'right';
-        ctx.fillText(`${intent.value}⚡`, canvas.width - 24, 42);
+        ctx.fillText(`${intent.value}⚡`, canvas.width - 24 * scale, 42 * scale);
         ctx.textAlign = 'left';
       }
     }
 
     // Illustration placeholder
     ctx.fillStyle = '#17110c';
-    ctx.fillRect(24, 90, canvas.width - 48, 120);
+    ctx.fillRect(24 * scale, 90 * scale, canvas.width - 48 * scale, 120 * scale);
     ctx.strokeStyle = '#4a0f08';
-    ctx.strokeRect(28, 94, canvas.width - 56, 112);
+    ctx.strokeRect(28 * scale, 94 * scale, canvas.width - 56 * scale, 112 * scale);
 
     // Center symbol
     ctx.fillStyle = '#ef5350';
-    ctx.font = 'bold 48px "Courier Prime", monospace';
+    ctx.font = 'bold ' + (48 * scale) + 'px "Courier Prime", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     if (cardToPlay) {
@@ -2370,33 +2443,33 @@ export class RenderManager {
       if (cardToPlay.type === 'payout') sym = '💸';
       else if (cardToPlay.type === 'physics') sym = '🌀';
       else if (cardToPlay.type === 'board') sym = '📊';
-      ctx.fillText(sym, 128, 150);
+      ctx.fillText(sym, 128 * scale, 150 * scale);
     } else {
-      ctx.fillText('👁', 128, 150);
+      ctx.fillText('👁', 128 * scale, 150 * scale);
     }
 
     // Description
     ctx.fillStyle = '#dddddd';
-    ctx.font = 'bold 12px "Courier Prime", monospace';
+    ctx.font = 'bold ' + (12 * scale) + 'px "Courier Prime", monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
     
     const descText = cardToPlay ? cardToPlay.description : intent.description;
     const words = descText.split(' ');
     let line = '';
-    let y = 240;
+    let y = 240 * scale;
     for (let n = 0; n < words.length; n++) {
       const testLine = line + words[n] + ' ';
       const metrics = ctx.measureText(testLine);
-      if (metrics.width > (canvas.width - 48) && n > 0) {
-        ctx.fillText(line, 24, y);
+      if (metrics.width > (canvas.width - 48 * scale) && n > 0) {
+        ctx.fillText(line, 24 * scale, y);
         line = words[n] + ' ';
-        y += 20;
+        y += 20 * scale;
       } else {
         line = testLine;
       }
     }
-    ctx.fillText(line, 24, y);
+    ctx.fillText(line, 24 * scale, y);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -3224,6 +3297,7 @@ export class RenderManager {
         const chip = new THREE.Mesh(chipGeo, mat);
         chip.castShadow = true;
         chip.receiveShadow = true;
+        chip.userData = { isPlacedChip: true, betType: bet.type, numberValue: bet.numberValue };
         
         const rx = (Math.random() - 0.5) * 0.006;
         const rz = (Math.random() - 0.5) * 0.006;
