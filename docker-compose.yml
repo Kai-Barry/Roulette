@@ -1,0 +1,7 @@
+services:
+  roulette-game:
+    build: .
+    container_name: roulette-game
+    restart: unless-stopped
+    ports:
+      - "3000:80"
