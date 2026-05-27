@@ -8,9 +8,13 @@ export class SoundManager {
   }
 
   private initContext() {
-    if (this.ctx) return;
-    this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    this.startAmbientDrone();
+    if (!this.ctx) {
+      this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      this.startAmbientDrone();
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(err => console.warn('Failed to resume AudioContext:', err));
+    }
   }
 
   // Creepy background ambient drone (low frequency hum)
@@ -189,5 +193,147 @@ export class SoundManager {
       osc.start(now);
       osc.stop(now + decay);
     });
+  }
+
+  // Creepy retro synth click modulated for special physics modifiers
+  playSpecialPhysicsClick(type: string, pitchMultiplier = 1.0) {
+    this.initContext();
+    if (!this.ctx) return;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    if (type === 'magnetic') {
+      // Sci-fi high-pitched FM ring modulation chime sound
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1400 * pitchMultiplier, this.ctx.currentTime);
+      osc.frequency.linearRampToValueAtTime(400, this.ctx.currentTime + 0.05);
+
+      gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.06);
+
+      const osc2 = this.ctx.createOscillator();
+      const gain2 = this.ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(180 * pitchMultiplier, this.ctx.currentTime);
+      osc2.connect(gain2);
+      gain2.gain.setValueAtTime(0.08, this.ctx.currentTime);
+      gain2.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.06);
+      osc2.connect(this.ctx.destination);
+      osc2.start();
+      osc2.stop(this.ctx.currentTime + 0.06);
+    } else if (type === 'nudge') {
+      // Glitchy high-speed double tap chirp
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(900 * pitchMultiplier, this.ctx.currentTime);
+      osc.frequency.setValueAtTime(1200 * pitchMultiplier, this.ctx.currentTime + 0.015);
+      
+      gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.035);
+    } else if (type === 'friction') {
+      // Damped scratching wood/canvas pop noise
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(350 * pitchMultiplier, this.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.04);
+      
+      gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.045);
+    } else if (type === 'tilt') {
+      // Spooky springy wobble pitch slide
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(600 * pitchMultiplier, this.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(250, this.ctx.currentTime + 0.05);
+      
+      gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.065);
+    } else if (type === 'mass') {
+      // Heavy deep wooden thud
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(140 * pitchMultiplier, this.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(15, this.ctx.currentTime + 0.09);
+      
+      gain.gain.setValueAtTime(0.35, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
+    } else {
+      // Standard click fallback
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(800 * pitchMultiplier, this.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.02);
+
+      gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.025);
+    }
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.11);
+  }
+
+  // Synthesize a high-pitched metallic ping for deflector peg bounces
+  playPegBounce(pitchMultiplier = 1.0) {
+    this.initContext();
+    if (!this.ctx) return;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1400 * pitchMultiplier, this.ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(700 * pitchMultiplier, this.ctx.currentTime + 0.035);
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 1000;
+
+    gain.gain.setValueAtTime(0.18, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.045);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.05);
+  }
+
+  playHammerStrike() {
+    this.initContext();
+    if (!this.ctx) return;
+    
+    const now = this.ctx.currentTime;
+    
+    // 1. High metallic ring (bell of the anvil)
+    const osc1 = this.ctx.createOscillator();
+    const gain1 = this.ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(1200, now);
+    osc1.frequency.exponentialRampToValueAtTime(800, now + 0.3);
+    gain1.gain.setValueAtTime(0.15, now);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    
+    const filter1 = this.ctx.createBiquadFilter();
+    filter1.type = 'highpass';
+    filter1.frequency.value = 600;
+    
+    osc1.connect(filter1);
+    filter1.connect(gain1);
+    gain1.connect(this.ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.35);
+
+    // 2. Heavy thud (hammer strike body)
+    const osc2 = this.ctx.createOscillator();
+    const gain2 = this.ctx.createGain();
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(150, now);
+    osc2.frequency.exponentialRampToValueAtTime(40, now + 0.15);
+    gain2.gain.setValueAtTime(0.3, now);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    
+    osc2.connect(gain2);
+    gain2.connect(this.ctx.destination);
+    osc2.start(now);
+    osc2.stop(now + 0.2);
   }
 }

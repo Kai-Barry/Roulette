@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // 3. Initialize WebGL 3D renderer inside the canvas container
   const canvasContainer = document.querySelector<HTMLDivElement>('#canvas-container')!;
-  const renderer = new RenderManager(engine, canvasContainer);
+  const renderer = new RenderManager(engine, canvasContainer, sound);
 
   // Connect renderer to UI for automated camera sequences and animations
   ui.setRenderer(renderer);
@@ -28,6 +28,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   renderer.onPlayedCardClicked = (cardId: string) => {
     ui.removePlayedCard(cardId);
+  };
+
+  renderer.onForgeCardClicked = (cardId: string) => {
+    const success = engine.purchaseForgeCard(cardId);
+    if (success) {
+      sound.playHammerStrike();
+      renderer.wheelVis.rebuildWheel(false, engine.runState.playerWheel);
+      ui.render();
+    } else {
+      sound.playRouletteClick(0.5);
+    }
+  };
+
+  renderer.onForgeCardHover = (cardId: string | null) => {
+    ui.setHoveredForgeCard(cardId);
   };
 
   ui.onViewChanged = (viewId: number) => {

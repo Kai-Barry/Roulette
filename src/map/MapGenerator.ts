@@ -37,10 +37,12 @@ export class MapGenerator {
             type = 'shop';
           } else if (floor > 0) {
             const roll = Math.random();
-            if (roll < 0.25) {
+            if (roll < 0.2) {
               type = 'shop';
-            } else if (roll < 0.5) {
+            } else if (roll < 0.4) {
               type = 'event';
+            } else if (roll < 0.55) {
+              type = 'forge';
             }
           }
 

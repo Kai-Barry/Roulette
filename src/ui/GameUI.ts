@@ -1,9 +1,9 @@
 import { GameEngine } from '../core/GameEngine';
 import { SoundManager } from './SoundManager';
-import { Card, MapNode } from '../core/Types';
+import { Card, MapNode, SlotColor, BetColor } from '../core/Types';
 import { getSlotColor } from '../physics/RoulettePhysics';
 import { CARD_DATABASE, getRandomCardId } from '../cards/CardDatabase';
-import { WHEEL_TEMPLATES, BOARD_UPGRADES } from '../core/WheelUpgrades';
+import { WHEEL_TEMPLATES, BOARD_UPGRADES, getAllWheels } from '../core/WheelUpgrades';
 
 export class GameUI {
   private engine: GameEngine;
@@ -29,6 +29,9 @@ export class GameUI {
   private codexRarityFilter = 'all';
   private codexTypeFilter = 'all';
 
+  // Forge state
+  private hoveredForgeCardId: string | null = null;
+
   // Wheel Customizer State
   private isCustomizingWheel = false;
   private customWheelData = {
@@ -37,8 +40,8 @@ export class GameUI {
     description: 'A bespoke engine of risk and blood.',
     numbers: [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26],
     greenNumbers: [0],
-    colors: {} as Record<number, 'red' | 'black' | 'green'>,
-    payoutMultipliers: { red: 2.0, black: 2.0, green: 10.0, number: 12.0, odd: 2.0, even: 2.0 },
+    colors: {} as Record<number, SlotColor>,
+    payoutMultipliers: { red: 2.0, black: 2.0, green: 10.0, number: 12.0, odd: 2.0, even: 2.0, gold: 4.0, purple: 4.0, cyan: 4.0, crimson: 6.0 },
     upgrades: [] as string[]
   };
 
@@ -167,6 +170,19 @@ export class GameUI {
                 </select>
                 <button id="dev-add-deck-btn" class="btn" style="flex: 0 0 70px;">Add</button>
               </div>
+              <div class="dev-group-title" style="margin-top: 4px;">Inject Slot Color</div>
+              <div class="dev-row">
+                <select id="dev-color-slot-select" class="dev-select">
+                  <option value="gold">Gold</option>
+                  <option value="purple">Purple</option>
+                  <option value="cyan">Cyan</option>
+                  <option value="crimson">Crimson</option>
+                  <option value="green">Green</option>
+                  <option value="red">Red</option>
+                  <option value="black">Black</option>
+                </select>
+                <button id="dev-color-slot-btn" class="btn" style="flex: 0 0 70px;">Inject</button>
+              </div>
             </div>
 
             <!-- Group: TELEPORTS & MAP -->
@@ -183,6 +199,7 @@ export class GameUI {
                 <button class="btn dev-teleport-btn" data-node="boss">Boss</button>
                 <button class="btn dev-teleport-btn" data-node="shop">Shop</button>
                 <button class="btn dev-teleport-btn" data-node="event">Event</button>
+                <button class="btn dev-teleport-btn" data-node="forge" style="border-color: #ff5500; color: #ff5500;">Forge</button>
               </div>
             </div>
           </div>
@@ -222,7 +239,7 @@ export class GameUI {
 
           <!-- PANEL: MAIN MENU -->
           <div id="menu-panel" class="panel active">
-            <h1 class="game-title">Roulette.OS</h1>
+            <h1 class="game-title">ROULETTE.OS</h1>
             <div class="menu-btn-group">
               <button id="start-run-btn" class="btn primary-btn pulse-glow">ENTER THE TAVERN</button>
               <button id="codex-btn" class="codex-menu-btn">CARD CODEX</button>
@@ -257,91 +274,84 @@ export class GameUI {
             <div id="codex-grid" class="codex-grid"></div>
           </div>
 
-          <!-- PANEL: DECK DRAFT -->
-          <div id="deck-draft-panel" class="panel hidden">
-            <h2 class="draft-header">DRAFT YOUR DECK</h2>
-            <p id="draft-progress-text" class="draft-progress">Pick 1 of 3 cards (0 / 10)</p>
-            <div id="draft-choices-container" class="draft-choices"></div>
-            <div id="draft-deck-preview" class="draft-deck-preview"></div>
+          <!-- PANEL: LOADOUT STORE -->
+          <div id="store-panel" class="panel hidden">
+            <!-- Rendered dynamically in renderLoadoutStore -->
           </div>
 
-          <!-- PANEL: STARTING WHEEL SELECTION -->
-          <div id="wheel-select-panel" class="panel hidden">
-            <div id="wheel-select-main-view">
-              <h2 class="panel-header">SELECT YOUR WHEEL</h2>
-              <p class="flavor-text">Choose the wheel that will bind your blood to the table.</p>
-              <div id="wheel-choices-container" class="wheel-select-grid"></div>
-            </div>
+          <!-- PANEL: WHEEL CUSTOMIZER -->
+          <div id="wheel-customizer-panel" class="panel hidden">
+            <h2 class="panel-header">CRAFT YOUR CUSTOM WHEEL</h2>
+            <p class="flavor-text">Select your numbers, toggle colors, set payouts, and build your board.</p>
             
-            <div id="wheel-customizer-panel" class="hidden">
-              <h2 class="panel-header">CRAFT YOUR CUSTOM WHEEL</h2>
-              <p class="flavor-text">Select your numbers, toggle colors, set payouts, and build your board.</p>
-              
-              <div class="customizer-layout">
-                <!-- Left panel: Name & Payout multipliers -->
-                <div class="customizer-sidebar glass-panel">
-                  <div class="input-group">
-                    <label>Wheel Name:</label>
-                    <input type="text" id="cust-wheel-name" value="Custom Destroyer" maxlength="24">
+            <div class="customizer-layout">
+              <!-- Left panel: Name & Payout multipliers -->
+              <div class="customizer-sidebar glass-panel">
+                <div class="input-group">
+                  <label>Wheel Name:</label>
+                  <input type="text" id="cust-wheel-name" value="Custom Destroyer" maxlength="24">
+                </div>
+                <div class="input-group" style="margin-top: 10px;">
+                  <label>Description:</label>
+                  <input type="text" id="cust-wheel-desc" value="A bespoke engine of risk and blood." maxlength="80">
+                </div>
+                
+                <div class="payout-inputs-header">Payout Multipliers:</div>
+                <div class="payout-inputs-grid">
+                  <div class="input-group-inline">
+                    <label>Red:</label>
+                    <input type="number" id="cust-payout-red" value="2.0" step="0.1" min="1.0" max="10.0">
                   </div>
-                  <div class="input-group" style="margin-top: 10px;">
-                    <label>Description:</label>
-                    <input type="text" id="cust-wheel-desc" value="A bespoke engine of risk and blood." maxlength="80">
+                  <div class="input-group-inline">
+                    <label>Black:</label>
+                    <input type="number" id="cust-payout-black" value="2.0" step="0.1" min="1.0" max="10.0">
                   </div>
-                  
-                  <div class="payout-inputs-header">Payout Multipliers:</div>
-                  <div class="payout-inputs-grid">
-                    <div class="input-group-inline">
-                      <label>Red:</label>
-                      <input type="number" id="cust-payout-red" value="2.0" step="0.1" min="1.0" max="10.0">
-                    </div>
-                    <div class="input-group-inline">
-                      <label>Black:</label>
-                      <input type="number" id="cust-payout-black" value="2.0" step="0.1" min="1.0" max="10.0">
-                    </div>
-                    <div class="input-group-inline">
-                      <label>Green:</label>
-                      <input type="number" id="cust-payout-green" value="10.0" step="0.5" min="2.0" max="50.0">
-                    </div>
-                    <div class="input-group-inline">
-                      <label>Single #:</label>
-                      <input type="number" id="cust-payout-number" value="12.0" step="1.0" min="5.0" max="100.0">
-                    </div>
-                    <div class="input-group-inline">
-                      <label>Odd:</label>
-                      <input type="number" id="cust-payout-odd" value="2.0" step="0.1" min="1.0" max="10.0">
-                    </div>
-                    <div class="input-group-inline">
-                      <label>Even:</label>
-                      <input type="number" id="cust-payout-even" value="2.0" step="0.1" min="1.0" max="10.0">
-                    </div>
+                  <div class="input-group-inline">
+                    <label>Green:</label>
+                    <input type="number" id="cust-payout-green" value="10.0" step="0.5" min="2.0" max="50.0">
                   </div>
-                  
-                  <div class="customizer-actions">
-                    <button id="cust-cancel-btn" class="btn secondary-btn">✕ CANCEL</button>
-                    <button id="cust-start-btn" class="btn primary-btn pulse-glow">✓ SAVE & START</button>
+                  <div class="input-group-inline">
+                    <label>Single #:</label>
+                    <input type="number" id="cust-payout-number" value="12.0" step="1.0" min="5.0" max="100.0">
+                  </div>
+                  <div class="input-group-inline">
+                    <label>Odd:</label>
+                    <input type="number" id="cust-payout-odd" value="2.0" step="0.1" min="1.0" max="10.0">
+                  </div>
+                  <div class="input-group-inline">
+                    <label>Even:</label>
+                    <input type="number" id="cust-payout-even" value="2.0" step="0.1" min="1.0" max="10.0">
                   </div>
                 </div>
                 
-                <!-- Right panel: Interactive slot editor -->
-                <div class="customizer-board-editor glass-panel">
-                  <div class="editor-instructions">
-                    Click cells to toggle inclusion on the wheel. Click active cell color dots to cycle: 
-                    <span class="dot-desc color-green">Green</span> -> 
-                    <span class="dot-desc color-red">Red</span> -> 
-                    <span class="dot-desc color-black">Black</span>.
-                  </div>
-                  <div class="quick-templates">
-                    Quick Templates:
-                    <button class="template-btn" data-template="mini">Mini (0-12)</button>
-                    <button class="template-btn" data-template="even">Even Only</button>
-                    <button class="template-btn" data-template="reds">All Reds</button>
-                    <button class="template-btn" data-template="classic">Classic (0-36)</button>
-                  </div>
-                  
-                  <div class="numbers-selector-grid" id="cust-numbers-grid">
-                    <!-- Dynamic Grid will go here -->
-                  </div>
+                <div class="customizer-actions">
+                  <button id="cust-cancel-btn" class="btn secondary-btn">✕ CANCEL</button>
+                  <button id="cust-start-btn" class="btn primary-btn pulse-glow">✓ SAVE WHEEL</button>
+                </div>
+              </div>
+              
+              <!-- Right panel: Interactive slot editor -->
+              <div class="customizer-board-editor glass-panel">
+                <div class="editor-instructions">
+                  Click cells to toggle inclusion on the wheel. Click active cell color dots to cycle: 
+                  <span class="dot-desc color-green">Green</span> -> 
+                  <span class="dot-desc color-red">Red</span> -> 
+                  <span class="dot-desc color-black">Black</span> ->
+                  <span class="dot-desc color-gold">Gold</span> ->
+                  <span class="dot-desc color-purple">Purple</span> ->
+                  <span class="dot-desc color-cyan">Cyan</span> ->
+                  <span class="dot-desc color-crimson">Crimson</span>.
+                </div>
+                <div class="quick-templates">
+                  Quick Templates:
+                  <button class="template-btn" data-template="mini">Mini (0-12)</button>
+                  <button class="template-btn" data-template="even">Even Only</button>
+                  <button class="template-btn" data-template="reds">All Reds</button>
+                  <button class="template-btn" data-template="classic">Classic (0-36)</button>
+                </div>
+                
+                <div class="numbers-selector-grid" id="cust-numbers-grid">
+                  <!-- Dynamic Grid will go here -->
                 </div>
               </div>
             </div>
@@ -389,6 +399,11 @@ export class GameUI {
             </div>
           </div>
 
+          <!-- PANEL: FORGE (BOARD/WHEEL BUILDER) -->
+          <div id="forge-panel" class="panel hidden">
+            <!-- Rendered dynamically in renderForge -->
+          </div>
+
           <!-- PANEL: COMBAT PLAY OVERLAY -->
           <div id="combat-ui" class="hidden">
             <!-- Left Side: Enemy Status -->
@@ -430,9 +445,16 @@ export class GameUI {
                   <button class="bet-btn bet-odd" data-type="odd">ODD (2x)</button>
                   <button class="bet-btn bet-even" data-type="even">EVEN (2x)</button>
                 </div>
+                <div class="bet-type-row" style="margin-top: 8px;">
+                  <button class="bet-btn bet-gold" data-type="gold" style="background: linear-gradient(135deg, #ffd700, #b8860b); color: #000;">GOLD (4x)</button>
+                  <button class="bet-btn bet-purple" data-type="purple" style="background: linear-gradient(135deg, #9c27b0, #6a1b9a); color: #fff;">PURPLE (4x)</button>
+                  <button class="bet-btn bet-cyan" data-type="cyan" style="background: linear-gradient(135deg, #00bcd4, #00838f); color: #fff;">CYAN (4x)</button>
+                  <button class="bet-btn bet-crimson" data-type="crimson" style="background: linear-gradient(135deg, #ff007f, #4a0025); color: #fff;">CRIMSON (6x)</button>
+                </div>
 
                 <!-- Number Grid Bets 0-36 -->
                 <div class="number-grid-label">OR BET SPECIFIC NUMBER (36x):</div>
+                <div id="board-hover-info" class="board-hover-info">HOVER A SLOT TO VIEW PAYOUTS</div>
                 <div class="number-grid-container">
                   <div class="num-cell num-green" data-num="0">0</div>
                   ${Array.from({ length: 36 }, (_, i) => {
@@ -672,7 +694,7 @@ export class GameUI {
     const betBtns = this.root.querySelectorAll('.bet-btn');
     betBtns.forEach(btn => {
       btn.addEventListener('click', () => {
-        const type = btn.getAttribute('data-type') as 'red' | 'black' | 'green' | 'odd' | 'even';
+        const type = btn.getAttribute('data-type') as 'red' | 'black' | 'green' | 'odd' | 'even' | 'gold' | 'purple' | 'cyan' | 'crimson';
         this.placeEngineBet(type, this.currentBetAmount);
       });
     });
@@ -818,6 +840,34 @@ export class GameUI {
       }
     });
 
+    this.root.querySelector('#dev-color-slot-btn')?.addEventListener('click', () => {
+      const select = this.root.querySelector('#dev-color-slot-select') as HTMLSelectElement;
+      if (select) {
+        this.sound.playBell();
+        const color = select.value as SlotColor;
+        const wheel = this.engine.runState.playerWheel;
+        const missing = [];
+        for (let i = 0; i <= 36; i++) {
+          if (!wheel.numbers.includes(i)) missing.push(i);
+        }
+        let num = 0;
+        if (missing.length > 0) {
+          num = missing[Math.floor(Math.random() * missing.length)];
+          wheel.numbers.push(num);
+        } else {
+          num = wheel.numbers[Math.floor(Math.random() * wheel.numbers.length)];
+        }
+        wheel.colors[num] = color;
+        if (color === 'green' && !wheel.greenNumbers.includes(num)) {
+          wheel.greenNumbers.push(num);
+        }
+        if (this.renderer) {
+          this.renderer.wheelVis.rebuildWheel(false, wheel);
+        }
+        this.render();
+      }
+    });
+
     this.root.querySelector('#dev-skip-floor-btn')?.addEventListener('click', () => {
       this.sound.playDraw();
       this.engine.devSkipFloor();
@@ -891,6 +941,10 @@ export class GameUI {
       const overlay = this.root.querySelector('#resolution-overlay');
       overlay?.classList.add('hidden');
 
+      if (this.engine.battleState) {
+        this.engine.battleState.isResolving = false;
+      }
+
       if (!this.engine.battleState) {
         this.render();
         return;
@@ -913,7 +967,7 @@ export class GameUI {
     });
   }
 
-  private placeEngineBet(type: 'red' | 'black' | 'green' | 'number' | 'odd' | 'even', amount: number, numberValue?: number) {
+  private placeEngineBet(type: 'red' | 'black' | 'green' | 'number' | 'odd' | 'even' | 'gold' | 'purple' | 'cyan' | 'crimson', amount: number, numberValue?: number) {
     if (!this.engine.battleState || this.engine.battleState.phase !== 'betting') return;
     
     // Play drawing sound
@@ -930,32 +984,21 @@ export class GameUI {
     if (!this.engine.battleState || this.isSpinning) return;
     if (!isEnemySpin && this.engine.battleState.bets.length === 0) return;
     
-    // Explicitly transition to Wheel view (3) when spinning starts!
-    this.setCurrentView(3);
+    // Explicitly transition to Wheel view when spinning starts!
+    this.setCurrentView(isEnemySpin ? 6 : 3);
 
     this.isSpinning = true;
     this.showTurnEnd = false;
     this.spinMessage = isEnemySpin ? 'ENEMY WHEEL IS SPINNING...' : 'THE WHEEL IS SPINNING...';
+    if (this.engine.battleState) {
+      this.engine.battleState.isResolving = false;
+    }
     this.render();
     
     // Trigger physics engine spin
     this.engine.spinWheel();
     
-    // Play spinning click loop synthesized
-    const playClick = () => {
-      if (!this.isSpinning) return;
-      
-      const velocity = Math.abs(this.engine.physics.ballOmega - this.engine.physics.wheelOmega);
-      if (velocity < 0.2) {
-        return;
-      }
-      
-      this.sound.playRouletteClick(0.6 + velocity * 0.1);
-      const delay = Math.max(30, 400 / velocity);
-      setTimeout(playClick, delay);
-    };
-    
-    setTimeout(playClick, 100);
+    // Clicks and bounces are now driven in real-time by the physics engine callbacks
 
     // Continuous physics step simulations managed by 3D renderer for smooth rendering
     if (this.renderer) {
@@ -977,6 +1020,9 @@ export class GameUI {
 
     this.isSpinning = false;
     this.sound.playDamageDealt();
+    if (this.engine.battleState) {
+      this.engine.battleState.isResolving = true;
+    }
 
     const colorText = res.color.toUpperCase();
     const outcomeText = `${res.number} ${colorText}`;
@@ -1028,9 +1074,17 @@ export class GameUI {
     // 1. Move camera to view 5 (Cinematic opponent diagonal view)
     this.setCurrentView(5);
 
-    // 2. Decide enemy bet (RED or BLACK)
+    // 2. Decide enemy bet (RED or BLACK or rare color if present on the wheel)
     const possibleBets = ['red', 'black'];
-    if (battle.enemy.isBoss && Math.random() < 0.15) possibleBets.push('green');
+    const activeWheel = battle.enemyWheel || battle.playerWheel;
+    const hasColor = (c: SlotColor) => activeWheel.numbers.some(n => getSlotColor(n, activeWheel) === c);
+    
+    if (hasColor('green') || (battle.enemy.isBoss && Math.random() < 0.15)) possibleBets.push('green');
+    if (hasColor('gold')) possibleBets.push('gold');
+    if (hasColor('purple')) possibleBets.push('purple');
+    if (hasColor('cyan')) possibleBets.push('cyan');
+    if (hasColor('crimson')) possibleBets.push('crimson');
+    
     const enemyBetType = possibleBets[Math.floor(Math.random() * possibleBets.length)];
 
     // 3. Pause for 1.0 second to let the camera settle so the player sees the opponent
@@ -1073,6 +1127,9 @@ export class GameUI {
 
     this.isSpinning = false;
     this.sound.playDamageDealt();
+    if (this.engine.battleState) {
+      this.engine.battleState.isResolving = true;
+    }
 
     const colorText = res.color.toUpperCase();
     const outcomeText = `${res.number} ${colorText}`;
@@ -1277,22 +1334,22 @@ export class GameUI {
   render() {
     const state = this.engine.runState;
 
-    // Toggle main screens
     this.togglePanel('menu-panel', state.gameState === 'MENU');
-    this.togglePanel('wheel-select-panel', state.gameState === 'WHEEL_SELECT');
-    this.togglePanel('deck-draft-panel', state.gameState === 'DECK_DRAFT');
+    this.togglePanel('store-panel', state.gameState === 'LOADOUT_STORE' && !this.isCustomizingWheel);
+    this.togglePanel('wheel-customizer-panel', state.gameState === 'LOADOUT_STORE' && this.isCustomizingWheel);
     this.togglePanel('map-panel', state.gameState === 'MAP');
     this.togglePanel('shop-panel', state.gameState === 'SHOP');
     this.togglePanel('event-panel', state.gameState === 'EVENT');
+    this.togglePanel('forge-panel', state.gameState === 'FORGE');
     this.togglePanel('gameover-panel', state.gameState === 'GAME_OVER');
     this.togglePanel('victory-panel', state.gameState === 'VICTORY');
     
     // Toggle overlays
-    this.togglePanel('hud-panel', state.gameState !== 'MENU' && state.gameState !== 'WHEEL_SELECT' && state.gameState !== 'DECK_DRAFT' && state.gameState !== 'GAME_OVER' && state.gameState !== 'VICTORY');
+    this.togglePanel('hud-panel', state.gameState !== 'MENU' && state.gameState !== 'LOADOUT_STORE' && state.gameState !== 'GAME_OVER' && state.gameState !== 'VICTORY');
     this.togglePanel('combat-ui', state.gameState === 'COMBAT');
     
     // Update Top HUD
-    if (state.gameState !== 'MENU' && state.gameState !== 'WHEEL_SELECT') {
+    if (state.gameState !== 'MENU' && state.gameState !== 'LOADOUT_STORE') {
       const hpPercent = (state.hp / state.maxHp) * 100;
       const hpBar = this.root.querySelector('#hud-hp-bar') as HTMLElement;
       const hpText = this.root.querySelector('#hud-hp-text') as HTMLElement;
@@ -1305,14 +1362,13 @@ export class GameUI {
       if (floorText) floorText.innerText = `${state.currentFloor + 1} / 7`;
     }
 
-    // Handle Wheel Selection Panel Rendering
-    if (state.gameState === 'WHEEL_SELECT') {
-      this.renderWheelSelect();
-    }
-
-    // Handle Deck Draft Panel Rendering
-    if (state.gameState === 'DECK_DRAFT') {
-      this.renderDeckDraft();
+    // Handle Store / Customizer Panel Rendering
+    if (state.gameState === 'LOADOUT_STORE') {
+      if (this.isCustomizingWheel) {
+        this.renderWheelCustomizer();
+      } else {
+        this.renderLoadoutStore();
+      }
     }
 
     // Handle Map Panel Rendering
@@ -1328,6 +1384,11 @@ export class GameUI {
     // Handle Event Panel Rendering
     if (state.gameState === 'EVENT') {
       this.renderEvent();
+    }
+
+    // Handle Forge Panel Rendering
+    if (state.gameState === 'FORGE') {
+      this.renderForge();
     }
 
     // Handle Combat UI Rendering
@@ -1433,7 +1494,8 @@ export class GameUI {
           elite: '👹',
           shop: '⚡',
           event: '❓',
-          boss: '👑'
+          boss: '👑',
+          forge: '🔥'
         };
 
         html += `
@@ -1463,6 +1525,134 @@ export class GameUI {
         this.render();
       });
     });
+  }
+
+  public setHoveredForgeCard(cardId: string | null) {
+    this.hoveredForgeCardId = cardId;
+    this.updateForgeDescriptionBox();
+  }
+
+  private updateForgeDescriptionBox() {
+    const box = this.root.querySelector('#forge-card-desc-box');
+    if (!box) return;
+
+    if (!this.hoveredForgeCardId) {
+      box.className = 'forge-card-desc-box';
+      box.innerHTML = `
+        <div class="forge-desc-title" style="color: #888;">INSPECT OFFERS</div>
+        <div class="forge-desc-text" style="color: rgba(255,255,255,0.4);">
+          Hover your cursor over a 3D Forge Card to inspect its details...
+        </div>
+      `;
+      return;
+    }
+
+    const state = this.engine.runState;
+    const card = (state.forgeCards || []).find(c => c.id === this.hoveredForgeCardId);
+    if (!card) {
+      box.className = 'forge-card-desc-box';
+      box.innerHTML = `
+        <div class="forge-desc-title" style="color: #888;">INSPECT OFFERS</div>
+        <div class="forge-desc-text" style="color: rgba(255,255,255,0.4);">
+          Hover your cursor over a 3D Forge Card to inspect its details...
+        </div>
+      `;
+      return;
+    }
+
+    box.className = `forge-card-desc-box has-hover`;
+    
+    let statusText = '';
+    if (card.purchased) {
+      statusText = `<div class="forge-desc-status" style="color: #ffca28; font-weight: bold; text-shadow: 0 0 6px rgba(255, 202, 40, 0.4);">OWNED / INSTALLED</div>`;
+    } else if (state.chips < card.cost) {
+      statusText = `<div class="forge-desc-status" style="color: #ff3333; font-weight: bold;">TOO EXPENSIVE (Costs ${card.cost} ⚡)</div>`;
+    } else {
+      statusText = `<div class="forge-desc-status" style="color: #00ff66; font-weight: bold; text-shadow: 0 0 6px rgba(0, 255, 100, 0.4);">CLICK TO PURCHASE FOR ${card.cost} ⚡</div>`;
+    }
+
+    box.innerHTML = `
+      <div class="forge-desc-title rarity-${card.rarity}">${card.name}</div>
+      <div class="forge-desc-text">${card.description}</div>
+      ${statusText}
+    `;
+  }
+
+  private renderForge() {
+    const container = this.root.querySelector('#forge-panel') as HTMLElement;
+    if (!container) return;
+
+    const state = this.engine.runState;
+    const wheel = state.playerWheel;
+    if (!wheel) return;
+
+    const pm = wheel.payoutMultipliers;
+
+    container.innerHTML = `
+      <div class="forge-hud">
+        <div class="forge-title-panel">
+          <h1>THE BLACKSMITH'S FORGE</h1>
+          <p class="flavor-text">Purchase upgrades to shape your wheel layout and bet payouts. Rerolling generates new offers.</p>
+        </div>
+
+        <div class="forge-stats-panel">
+          <div>CHIPS: <span class="forge-stats-chips">${state.chips} ⚡</span></div>
+          <div class="forge-stats-multipliers">
+            SLOTS: <span style="color:#fff;">${wheel.numbers.length}</span> | 
+            RED: <span style="color:#ef5350;">${pm.red}x</span> | 
+            BLACK: <span style="color:#aaaaaa;">${pm.black}x</span> | 
+            GREEN: <span style="color:#4caf50;">${pm.green}x</span> | 
+            SINGLE #: <span style="color:#ffd54f;">${pm.number}x</span> | 
+            ODD: <span style="color:#ffd54f;">${pm.odd}x</span> | 
+            EVEN: <span style="color:#0288d1;">${pm.even}x</span>
+          </div>
+        </div>
+
+        <div class="forge-bottom-hud">
+          <div id="forge-card-desc-box" class="forge-card-desc-box">
+            <!-- Updated dynamically on hover -->
+          </div>
+
+          <div class="forge-action-buttons">
+            <button id="forge-reroll-btn" class="forge-btn" ${state.chips < 5 ? 'disabled' : ''}>
+              Reroll Offers (5 ⚡)
+            </button>
+            <button id="forge-leave-btn" class="forge-btn leave-btn">
+              Return to Paths
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Populate initial description box state
+    this.updateForgeDescriptionBox();
+
+    // Bind Reroll Click
+    const rerollBtn = container.querySelector('#forge-reroll-btn');
+    if (rerollBtn) {
+      rerollBtn.addEventListener('click', () => {
+        if (state.chips < 5) return;
+        this.sound.playDraw();
+        this.engine.rerollForge();
+        if (this.renderer) {
+          this.renderer.hoveredForgeCardId = null;
+          this.hoveredForgeCardId = null;
+          this.renderer.syncForgeCards();
+        }
+        this.render();
+      });
+    }
+
+    // Bind Leave Click
+    const leaveBtn = container.querySelector('#forge-leave-btn');
+    if (leaveBtn) {
+      leaveBtn.addEventListener('click', () => {
+        this.sound.playCardSwoosh();
+        state.gameState = 'MAP';
+        this.render();
+      });
+    }
   }
 
   // Shop Generator
@@ -1630,70 +1820,168 @@ export class GameUI {
     });
   }
 
-  private renderWheelSelect() {
-    const mainView = this.root.querySelector('#wheel-select-main-view') as HTMLElement;
-    const customizerView = this.root.querySelector('#wheel-customizer-panel') as HTMLElement;
-    if (!mainView || !customizerView) return;
-
-    if (this.isCustomizingWheel) {
-      mainView.classList.add('hidden');
-      customizerView.classList.remove('hidden');
-      this.renderWheelCustomizer();
-      return;
-    }
-
-    mainView.classList.remove('hidden');
-    customizerView.classList.add('hidden');
-
-    const container = this.root.querySelector('#wheel-choices-container')!;
+  private renderLoadoutStore() {
+    const container = this.root.querySelector('#store-panel') as HTMLElement;
     if (!container) return;
-    
-    let html = '';
-    
-    Object.keys(WHEEL_TEMPLATES).forEach(key => {
-      const wheel = WHEEL_TEMPLATES[key];
+
+    const state = this.engine.runState;
+    const storePoints = state.storePoints ?? 10;
+    const storeItems = state.storeItems ?? [];
+
+    // Separate cards and wheels
+    const cardsForSale = storeItems.filter(item => item.type === 'card');
+    const wheelsForSale = storeItems.filter(item => item.type === 'wheel');
+
+    // Build Current Loadout Display
+    const deckCount = state.deck.length;
+    const currentWheelName = state.playerWheel.name;
+    const currentWheelRarity = state.playerWheel.rarity || 'common';
+
+    // Deck Preview HTML
+    const deckListHtml = state.deck.map(c => `
+      <span class="store-loadout-chip rarity-${c.rarity}">${c.name}</span>
+    `).join('');
+
+    let cardsHtml = '';
+    cardsForSale.forEach(item => {
+      const isPurchased = item.purchased;
+      const isTooExpensive = storePoints < item.pointsCost;
+      const cardClass = `store-item rarity-${item.rarity} ${isPurchased ? 'purchased' : ''} ${isTooExpensive && !isPurchased ? 'too-expensive' : ''}`;
       
-      // Compute display stats
-      const totalSlots = wheel.numbers.length;
-      const greenSlots = wheel.greenNumbers.length;
-      const redSlots = wheel.numbers.filter(num => wheel.colors[num] === 'red').length;
-      const blackSlots = wheel.numbers.filter(num => wheel.colors[num] === 'black').length;
-      
-      html += `
-        <div class="wheel-select-card glass-panel" data-id="${key}">
-          <div class="wheel-name">${wheel.name}</div>
-          <div class="wheel-desc">${wheel.description}</div>
-          <div class="wheel-stats">
-            <div><strong>TOTAL SLOTS:</strong> ${totalSlots}</div>
-            <div><strong>GREEN SLOTS:</strong> ${greenSlots}</div>
-            <div><strong>RED SLOTS:</strong> ${redSlots}</div>
-            <div><strong>BLACK SLOTS:</strong> ${blackSlots}</div>
-            <div style="margin-top: 8px;"><strong>PAYOUTS:</strong></div>
-            <div>Red/Black: ${wheel.payoutMultipliers.red}x / ${wheel.payoutMultipliers.black}x</div>
-            <div>Green: ${wheel.payoutMultipliers.green}x</div>
+      cardsHtml += `
+        <div class="${cardClass}" data-id="${item.id}">
+          <div class="store-item-header">
+            <span class="store-item-name">${item.name}</span>
+            <span class="store-item-cost">${item.pointsCost} PTS</span>
           </div>
-          <button class="btn primary-btn select-wheel-btn" data-id="${key}">
-            CHOOSE WHEEL
-          </button>
+          <div class="store-item-desc">${item.description}</div>
+          <div class="store-item-rarity ${item.rarity}">${item.rarity}</div>
+          ${isPurchased ? '<div class="purchased-badge">OWNED</div>' : ''}
         </div>
       `;
     });
-    
-    container.innerHTML = html;
-    
-    // Bind click events on the button and the card
-    const selectCards = container.querySelectorAll('.wheel-select-card');
-    selectCards.forEach(card => {
-      card.addEventListener('click', () => {
-        const id = card.getAttribute('data-id')!;
+
+    let wheelsHtml = '';
+    wheelsForSale.forEach(item => {
+      const isPurchased = item.purchased;
+      const isTooExpensive = storePoints < item.pointsCost;
+      const wheelClass = `store-item rarity-${item.rarity} ${isPurchased ? 'purchased' : ''} ${isTooExpensive && !isPurchased ? 'too-expensive' : ''}`;
+      
+      // Get the wheel config to show stats
+      const allWheels = getAllWheels();
+      const wheelConfig = allWheels.find(w => w.id === item.itemId);
+      let statsHtml = '';
+      if (wheelConfig) {
+        const slots = wheelConfig.numbers.length;
+        const greens = wheelConfig.greenNumbers.length;
+        statsHtml = `
+          <div class="store-wheel-stats">
+            <span class="store-wheel-stat">${slots} slots</span>
+            <span class="store-wheel-stat">${greens} green</span>
+            <span class="store-wheel-stat">${wheelConfig.payoutMultipliers.red}x R / ${wheelConfig.payoutMultipliers.black}x B</span>
+          </div>
+        `;
+      }
+
+      wheelsHtml += `
+        <div class="${wheelClass}" data-id="${item.id}">
+          <div class="store-item-header">
+            <span class="store-item-name">${item.name}</span>
+            <span class="store-item-cost">${item.pointsCost} PTS</span>
+          </div>
+          <div class="store-item-desc">${item.description}</div>
+          ${statsHtml}
+          <div class="store-item-rarity ${item.rarity}">${item.rarity}</div>
+          ${isPurchased ? '<div class="purchased-badge">ACTIVE</div>' : ''}
+        </div>
+      `;
+    });
+
+    container.innerHTML = `
+      <div class="store-container">
+        <div class="store-header">
+          <h1>ROULETTE.OS Drafting Store</h1>
+          <p class="flavor-text">Prepare your loadout. Choose your weapons and bind your wheel.</p>
+          <div class="store-points-bar">
+            <span>AVAILABLE POINTS:</span>
+            <span class="store-points-value">${storePoints}</span>
+          </div>
+        </div>
+
+        <div class="store-sections">
+          <div class="store-section">
+            <h2>CARDS FOR SALE</h2>
+            <div class="store-grid">
+              ${cardsHtml}
+            </div>
+          </div>
+          <div class="store-section">
+            <h2>WHEELS FOR SALE</h2>
+            <div class="store-grid">
+              ${wheelsHtml}
+            </div>
+          </div>
+        </div>
+
+        <div class="store-loadout">
+          <h3>CURRENT LOADOUT</h3>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <span class="store-loadout-chip wheel-chip rarity-${currentWheelRarity}" style="font-size: 1.1rem; padding: 6px 12px;">
+                WHEEL: ${currentWheelName} (${currentWheelRarity})
+              </span>
+              <button id="store-customize-wheel-btn" class="btn secondary-btn" style="padding: 4px 12px; font-size: 0.9rem;">
+                ⚙ CUSTOMIZE WHEEL
+              </button>
+            </div>
+            <div>
+              <span style="font-family: 'VT323', monospace; font-size: 0.95rem; color: #aaa; margin-right: 6px;">DECK (${deckCount} cards):</span>
+              <div class="store-loadout-items" style="display: inline-flex; vertical-align: middle;">
+                ${deckListHtml}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button id="store-continue-btn" class="store-continue-btn">
+          CONTINUE TO MAP
+        </button>
+      </div>
+    `;
+
+    // Bind click events on items
+    const storeItemEls = container.querySelectorAll('.store-item');
+    storeItemEls.forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.getAttribute('data-id')!;
         this.sound.playDraw();
-        const needsCustomization = this.engine.selectStartingWheel(id);
-        if (needsCustomization) {
-          this.isCustomizingWheel = true;
-          this.initCustomColors();
+        const success = this.engine.purchaseStoreItem(id);
+        if (success) {
+          this.render();
+        } else {
+          this.sound.playRouletteClick(0.3); // invalid
         }
+      });
+    });
+
+    // Bind customize button
+    const customizeBtn = container.querySelector('#store-customize-wheel-btn');
+    if (customizeBtn) {
+      customizeBtn.addEventListener('click', () => {
+        this.sound.playCardSwoosh();
+        // Clone player's current wheel into customWheelData
+        this.customWheelData = JSON.parse(JSON.stringify(state.playerWheel));
+        this.isCustomizingWheel = true;
         this.render();
       });
+    }
+
+    // Bind continue button
+    const continueBtn = container.querySelector('#store-continue-btn')!;
+    continueBtn.addEventListener('click', () => {
+      this.sound.playCardSwoosh();
+      this.engine.completeStore();
+      this.render();
     });
   }
 
@@ -1729,13 +2017,27 @@ export class GameUI {
         if (target.classList.contains('cell-color-indicator')) {
           e.stopPropagation();
           const currColor = this.customWheelData.colors[num] || 'black';
-          let nextColor: 'red' | 'black' | 'green' = 'red';
+          let nextColor: SlotColor = 'red';
           
           if (currColor === 'green') {
             nextColor = 'red';
             this.customWheelData.greenNumbers = this.customWheelData.greenNumbers.filter(n => n !== num);
           } else if (currColor === 'red') {
             nextColor = 'black';
+            this.customWheelData.greenNumbers = this.customWheelData.greenNumbers.filter(n => n !== num);
+          } else if (currColor === 'black') {
+            nextColor = 'gold';
+            this.customWheelData.greenNumbers = this.customWheelData.greenNumbers.filter(n => n !== num);
+          } else if (currColor === 'gold') {
+            nextColor = 'purple';
+            if (!this.customWheelData.greenNumbers.includes(num)) {
+              this.customWheelData.greenNumbers.push(num);
+            }
+          } else if (currColor === 'purple') {
+            nextColor = 'cyan';
+            this.customWheelData.greenNumbers = this.customWheelData.greenNumbers.filter(n => n !== num);
+          } else if (currColor === 'cyan') {
+            nextColor = 'crimson';
             this.customWheelData.greenNumbers = this.customWheelData.greenNumbers.filter(n => n !== num);
           } else {
             nextColor = 'green';
@@ -1841,7 +2143,7 @@ export class GameUI {
       this.customWheelData.payoutMultipliers.odd = parseFloat((this.root.querySelector('#cust-payout-odd') as HTMLInputElement).value) || 2.0;
       this.customWheelData.payoutMultipliers.even = parseFloat((this.root.querySelector('#cust-payout-even') as HTMLInputElement).value) || 2.0;
 
-      // Fill colors for all enabled numbers that aren't defined
+      const reds = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
       this.customWheelData.numbers.forEach(n => {
         if (!this.customWheelData.colors[n]) {
           this.customWheelData.colors[n] = this.customWheelData.greenNumbers.includes(n) ? 'green' : (reds.has(n) ? 'red' : 'black');
@@ -1850,7 +2152,9 @@ export class GameUI {
 
       this.sound.playBell();
       this.isCustomizingWheel = false;
-      this.engine.selectCustomWheel(JSON.parse(JSON.stringify(this.customWheelData)));
+      this.engine.runState.playerWheel = JSON.parse(JSON.stringify(this.customWheelData));
+      this.engine.runState.playerWheel.id = 'custom';
+      this.engine.runState.selectedWheelId = 'custom';
       this.render();
     });
   }
@@ -2001,12 +2305,42 @@ export class GameUI {
       
       numGridContainer.innerHTML = gridHtml;
       
-      // Bind click listeners for dynamic number cells
+      // Bind click and hover listeners for dynamic number cells
       const numCells = numGridContainer.querySelectorAll('.num-cell');
       numCells.forEach(cell => {
+        const num = parseInt(cell.getAttribute('data-num')!);
+        const color = getSlotColor(num, activeWheel, battle.boardModifiers);
+
+        // Set title for native tooltips
+        const singlePayout = activeWheel.payoutMultipliers.number;
+        const colorPayout = color === 'gold' ? (activeWheel.payoutMultipliers.gold || 4) :
+                             color === 'purple' ? (activeWheel.payoutMultipliers.purple || 4) :
+                             color === 'cyan' ? (activeWheel.payoutMultipliers.cyan || 4) :
+                             color === 'crimson' ? (activeWheel.payoutMultipliers.crimson || 6) :
+                             color === 'green' ? activeWheel.payoutMultipliers.green :
+                             color === 'red' ? activeWheel.payoutMultipliers.red :
+                             activeWheel.payoutMultipliers.black;
+        cell.setAttribute('title', `Slot ${num}\nSingle Bet Payout: ${singlePayout}x\nColor Payout: ${colorPayout}x`);
+
         cell.addEventListener('click', () => {
-          const num = parseInt(cell.getAttribute('data-num')!);
           this.placeEngineBet('number', this.currentBetAmount, num);
+        });
+
+        // Interactive hover information panel update
+        cell.addEventListener('mouseenter', () => {
+          const hoverInfo = this.root.querySelector('#board-hover-info') as HTMLElement;
+          if (hoverInfo) {
+            hoverInfo.innerText = `SLOT ${num}: ${color.toUpperCase()} | PAYOUTS: ${singlePayout}x SINGLE / ${colorPayout}x COLOR`;
+            hoverInfo.style.color = color === 'red' ? '#ef5350' : (color === 'crimson' ? '#ff007f' : (color === 'black' ? '#fff' : (color === 'green' ? '#4caf50' : (color === 'gold' ? '#ffd700' : (color === 'purple' ? '#ce93d8' : '#80deea')))));
+          }
+        });
+
+        cell.addEventListener('mouseleave', () => {
+          const hoverInfo = this.root.querySelector('#board-hover-info') as HTMLElement;
+          if (hoverInfo) {
+            hoverInfo.innerText = "HOVER A SLOT TO VIEW PAYOUTS";
+            hoverInfo.style.color = 'var(--color-gold)';
+          }
         });
       });
     }
@@ -2030,6 +2364,18 @@ export class GameUI {
       
       const btnEven = this.root.querySelector('.bet-even') as HTMLElement;
       if (btnEven) btnEven.innerHTML = `EVEN (${payouts.even}x)`;
+
+      const btnGold = this.root.querySelector('.bet-gold') as HTMLElement;
+      if (btnGold) btnGold.innerHTML = `GOLD (${payouts.gold || 4}x)`;
+
+      const btnPurple = this.root.querySelector('.bet-purple') as HTMLElement;
+      if (btnPurple) btnPurple.innerHTML = `PURPLE (${payouts.purple || 4}x)`;
+
+      const btnCyan = this.root.querySelector('.bet-cyan') as HTMLElement;
+      if (btnCyan) btnCyan.innerHTML = `CYAN (${payouts.cyan || 4}x)`;
+
+      const btnCrimson = this.root.querySelector('.bet-crimson') as HTMLElement;
+      if (btnCrimson) btnCrimson.innerHTML = `CRIMSON (${payouts.crimson || 6}x)`;
     }
 
     // Placed Bets list update
@@ -2146,86 +2492,5 @@ export class GameUI {
     codexPanel.classList.remove('hidden');
   }
 
-  // Deck Draft Screen Rendering
-  private renderDeckDraft() {
-    const progressText = this.root.querySelector('#draft-progress-text') as HTMLElement;
-    const choicesContainer = this.root.querySelector('#draft-choices-container') as HTMLElement;
-    const deckPreview = this.root.querySelector('#draft-deck-preview') as HTMLElement;
-    
-    if (!progressText || !choicesContainer || !deckPreview) return;
 
-    const progress = this.engine.runState.draftProgress ?? 0;
-    const deck = this.engine.runState.deck || [];
-
-    if (progress < 2) {
-      deckPreview.style.display = 'block';
-      progressText.innerText = progress === 0 
-        ? "Pick 1 Rare card out of three options:" 
-        : "Pick 1 Uncommon card out of three options:";
-
-      const choices = this.engine.getDraftChoices();
-      
-      choicesContainer.innerHTML = choices.map(card => {
-        const rarityClass = `draft-card-rarity-${card.rarity}`;
-        return `
-          <div class="draft-card ${rarityClass}" data-card-id="${card.id}">
-            <div class="draft-card-name">${card.name}</div>
-            <div class="draft-card-cost">Cost: ${card.cost} ⚡</div>
-            <div class="draft-card-desc">${card.description}</div>
-            <div class="draft-card-meta">${card.type} · ${card.rarity}</div>
-          </div>
-        `;
-      }).join('');
-
-      // Show current deck preview
-      if (deck.length > 0) {
-        deckPreview.innerHTML = `Your current deck: <span>${deck.map(c => c.name).join(', ')}</span>`;
-      } else {
-        deckPreview.innerHTML = 'Your deck is empty.';
-      }
-
-      // Bind click events on draft cards
-      const draftCards = choicesContainer.querySelectorAll('.draft-card');
-      draftCards.forEach(cardEl => {
-        cardEl.addEventListener('click', () => {
-          const cardId = cardEl.getAttribute('data-card-id')!;
-          if (this.engine.pickDraftCard(cardId)) {
-            this.sound.playDraw();
-            this.render();
-          }
-        });
-      });
-    } else {
-      deckPreview.style.display = 'none';
-      progressText.innerText = "Here is your starting deck. 5 random Common cards have been added to your draft picks.";
-
-      choicesContainer.innerHTML = `
-        <div class="draft-complete-view">
-          <div class="draft-final-deck-grid">
-            ${deck.map(card => {
-              const rarityClass = `draft-card-rarity-${card.rarity}`;
-              return `
-                <div class="draft-card ${rarityClass} non-interactive">
-                  <div class="draft-card-name">${card.name}</div>
-                  <div class="draft-card-cost">Cost: ${card.cost} ⚡</div>
-                  <div class="draft-card-desc">${card.description}</div>
-                  <div class="draft-card-meta">${card.type} · ${card.rarity}</div>
-                </div>
-              `;
-            }).join('')}
-          </div>
-          <button id="draft-continue-btn" class="btn primary-btn pulse-glow" style="margin-top: 30px; font-size: 20px; padding: 12px 30px;">ENTER THE TAVERN</button>
-        </div>
-      `;
-
-      const continueBtn = choicesContainer.querySelector('#draft-continue-btn');
-      if (continueBtn) {
-        continueBtn.addEventListener('click', () => {
-          this.sound.playCardSwoosh();
-          this.engine.completeDraft();
-          this.render();
-        });
-      }
-    }
-  }
 }

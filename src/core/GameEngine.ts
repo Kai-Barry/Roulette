@@ -1,9 +1,9 @@
-import { RunState, BattleState, GameState, Enemy, Card, MapNode, Bet, PhysicsModifiers, BoardModifiers, EnemyActionType, EnemyIntent, WheelConfig } from './Types';
+import { RunState, BattleState, GameState, Enemy, Card, MapNode, Bet, PhysicsModifiers, BoardModifiers, EnemyActionType, EnemyIntent, WheelConfig, StoreItem, SlotColor, BetColor, ForgeCard } from './Types';
 import { createStarterDeck, getCardById, CARD_DATABASE, getRandomCardId } from '../cards/CardDatabase';
 import { MapGenerator } from '../map/MapGenerator';
-import { getSlotColor, RoulettePhysics } from '../physics/RoulettePhysics';
+import { getSlotColor, getBetColor, getSlotEffect, RoulettePhysics } from '../physics/RoulettePhysics';
 import { CardHandler } from '../cards/CardHandler';
-import { WHEEL_TEMPLATES, BOARD_UPGRADES, applyBoardUpgrade, initializeWheelColors, WHEEL_NUMBERS } from './WheelUpgrades';
+import { WHEEL_TEMPLATES, BOARD_UPGRADES, applyBoardUpgrade, initializeWheelColors, WHEEL_NUMBERS, WHEEL_POOL, generateStoreWheels, getRandomCommonWheel, getAllWheels } from './WheelUpgrades';
 
 // Define initial settings
 const BASE_MAX_HP = 80;
@@ -31,7 +31,7 @@ export class GameEngine {
       hp: BASE_MAX_HP,
       maxHp: BASE_MAX_HP,
       chips: INITIAL_CHIPS,
-      deck: createStarterDeck(),
+      deck: [],
       relics: [],
       currentFloor: 0,
       mapNodes: map,
@@ -44,8 +44,8 @@ export class GameEngine {
 
   startNewRun() {
     this.runState = this.getInitialRunState();
-    this.runState.gameState = 'WHEEL_SELECT';
     this.battleState = null;
+    this.initStore();
   }
 
   selectNode(nodeId: string) {
@@ -79,6 +79,9 @@ export class GameEngine {
       this.runState.gameState = 'SHOP';
     } else if (node.type === 'event') {
       this.runState.gameState = 'EVENT';
+    } else if (node.type === 'forge') {
+      this.runState.gameState = 'FORGE';
+      this.initForge();
     }
   }
 
@@ -188,11 +191,11 @@ export class GameEngine {
         enemyWheel.name = "The Decayed Dozen";
         enemyWheel.description = "A rusty, unstable 13-slot wheel.";
       } else if (spriteName === 'wraith') {
-        enemyWheel = JSON.parse(JSON.stringify(WHEEL_TEMPLATES.crimson));
+        enemyWheel = JSON.parse(JSON.stringify(WHEEL_TEMPLATES.crimson_tide));
         enemyWheel.name = "The Wraith Reservoir";
         enemyWheel.description = "A blood-soaked wheel favoring red slots.";
       } else if (spriteName === 'croupier') {
-        enemyWheel = JSON.parse(JSON.stringify(WHEEL_TEMPLATES.void));
+        enemyWheel = JSON.parse(JSON.stringify(WHEEL_TEMPLATES.verdant));
         enemyWheel.name = "The Grave Gateway";
         enemyWheel.description = "A dark wheel with multiple green slots.";
       } else {
@@ -227,7 +230,8 @@ export class GameEngine {
       ballSeedAngle,
       spinSeedSpeed,
       ballSeedSpeed,
-      drawsThisTurn: 0
+      drawsThisTurn: 0,
+      isResolving: false
     };
 
     // Reset physics engines with initial modifiers
@@ -306,7 +310,7 @@ export class GameEngine {
     return success;
   }
 
-  placeBet(type: 'red' | 'black' | 'green' | 'number' | 'odd' | 'even', amount: number, numberValue?: number) {
+  placeBet(type: 'red' | 'black' | 'green' | 'number' | 'odd' | 'even' | 'gold' | 'purple' | 'cyan' | 'crimson', amount: number, numberValue?: number) {
     if (!this.battleState) return false;
     if (amount <= 0 || this.battleState.chipsPool < amount) return false;
 
@@ -461,7 +465,8 @@ export class GameEngine {
     const hasLuckyCharm = this.battleState.activePlayedCards?.some(c => c.effectId === 'LUCKY_CHARM');
     
     let color = getSlotColor(winningNum, activeWheel, boardModifiers);
-    let damageDealt = this.calculateSpinDamage(winningNum, color);
+    let betColor = getBetColor(color);
+    let damageDealt = this.calculateSpinDamage(winningNum, color, betColor);
 
     // 1. LUCKY CHARM reroll logic (100% chance to reroll if damage is 0)
     if (damageDealt === 0 && hasLuckyCharm) {
@@ -473,7 +478,8 @@ export class GameEngine {
       }
       this.playerPhysics.settledSlotIndex = activeWheel.numbers.indexOf(winningNum);
       color = getSlotColor(winningNum, activeWheel, boardModifiers);
-      damageDealt = this.calculateSpinDamage(winningNum, color);
+      betColor = getBetColor(color);
+      damageDealt = this.calculateSpinDamage(winningNum, color, betColor);
     }
 
     // Apply lucky number checks (Sinner's Seven)
@@ -481,7 +487,29 @@ export class GameEngine {
       this.runState.hp = Math.min(this.runState.maxHp, this.runState.hp + 6);
     }
 
-    // 2. Apply Zone and Slot Triggers
+    // 2. Apply special color effects
+    const hpPercent = this.runState.hp / this.runState.maxHp;
+    const slotEffect = getSlotEffect(color, hpPercent);
+    let slotEffectDesc: string | undefined;
+
+    if (slotEffect) {
+      slotEffectDesc = slotEffect.description;
+      switch (slotEffect.type) {
+        case 'gold_heal':
+          this.runState.hp = Math.min(this.runState.maxHp, this.runState.hp + 3);
+          break;
+        case 'purple_curse':
+          // Purple already adds 2x via payout, but costs 3 HP
+          this.runState.hp = Math.max(1, this.runState.hp - 3);
+          break;
+        case 'cyan_shield':
+          this.battleState.playerBlock += 8;
+          break;
+        // crimson effects are handled in calculateSpinDamage via multiplier
+      }
+    }
+
+    // 3. Apply Zone and Slot Triggers
     if (boardModifiers.chipMines && boardModifiers.chipMines[winningNum] !== undefined) {
       this.battleState.chipsPool += boardModifiers.chipMines[winningNum];
     }
@@ -507,7 +535,7 @@ export class GameEngine {
       boardModifiers.enemyStunTurns = (boardModifiers.enemyStunTurns || 0) + 2;
     }
 
-    // 3. Insurance Policy Refund Check
+    // 4. Insurance Policy Refund Check
     if (boardModifiers.insuranceActive) {
       if (damageDealt === 0) {
         let refund = 0;
@@ -517,12 +545,12 @@ export class GameEngine {
       boardModifiers.insuranceActive = false;
     }
 
-    // 4. Streak Tracking
+    // 5. Streak Tracking (uses betColor for streak tracking)
     if (boardModifiers.redStreakActive || boardModifiers.blackStreakActive) {
-      if (color === 'red') {
+      if (betColor === 'red') {
         boardModifiers.redStreakCount = (boardModifiers.redStreakCount || 0) + 1;
         boardModifiers.blackStreakCount = 0;
-      } else if (color === 'black') {
+      } else if (betColor === 'black') {
         boardModifiers.blackStreakCount = (boardModifiers.blackStreakCount || 0) + 1;
         boardModifiers.redStreakCount = 0;
       } else {
@@ -535,17 +563,19 @@ export class GameEngine {
     this.battleState.lastSpinResult = {
       number: winningNum,
       color,
+      betColor,
       damageDealt,
       playerDamageTaken: 0,
       betsEvaluated: this.battleState.bets.map(b => ({ ...b })),
-      cardsActive: [...(this.battleState.activePlayedCards || [])]
+      cardsActive: [...(this.battleState.activePlayedCards || [])],
+      slotEffect: slotEffectDesc
     };
 
     // Discard played bets (they are consumed/gone)
     this.battleState.bets = [];
   }
 
-  private calculateSpinDamage(winningNum: number, color: 'red' | 'black' | 'green'): number {
+  private calculateSpinDamage(winningNum: number, color: SlotColor, betColor: BetColor): number {
     if (!this.battleState) return 0;
     const activeWheel = this.battleState.playerWheel;
     const boardModifiers = this.battleState.boardModifiers;
@@ -576,7 +606,8 @@ export class GameEngine {
                             (boardModifiers.extraGreenSlots && boardModifiers.extraGreenSlots > 0 && winningNum === 32) ||
                             (boardModifiers.extraGreenSlots && boardModifiers.extraGreenSlots > 1 && (winningNum === 11 || winningNum === 22)) ||
                             (boardModifiers.extraGreenSlots && boardModifiers.extraGreenSlots > 3 && (winningNum === 5 || winningNum === 17 || winningNum === 29)) ||
-                            ((boardModifiers as any).emeraldForestActive && PRIMES.includes(winningNum));
+                            ((boardModifiers as any).emeraldForestActive && PRIMES.includes(winningNum)) ||
+                            color === 'green';
         if (isGreenSlot) {
           isWin = true;
           let greenMult = activeWheel.payoutMultipliers.green;
@@ -591,6 +622,20 @@ export class GameEngine {
             multiplier += 5 * greenSlotsCount;
           }
         }
+      } else if (bet.type === 'gold' && color === 'gold') {
+        isWin = true;
+        multiplier = activeWheel.payoutMultipliers.gold || 4.0;
+      } else if (bet.type === 'purple' && color === 'purple') {
+        isWin = true;
+        multiplier = activeWheel.payoutMultipliers.purple || 4.0;
+      } else if (bet.type === 'cyan' && color === 'cyan') {
+        isWin = true;
+        multiplier = activeWheel.payoutMultipliers.cyan || 4.0;
+      } else if (bet.type === 'crimson' && color === 'crimson') {
+        isWin = true;
+        const baseCrimsonMult = activeWheel.payoutMultipliers.crimson || 6.0;
+        const hpPercent = this.runState.hp / this.runState.maxHp;
+        multiplier = hpPercent < 0.5 ? baseCrimsonMult * 2.0 : baseCrimsonMult;
       } else if (bet.type === 'number' && (bet.numberValue === winningNum || mirrorSlots[winningNum] === bet.numberValue)) {
         isWin = true;
         multiplier = customNumberMultipliers[winningNum] || activeWheel.payoutMultipliers.number;
@@ -650,11 +695,11 @@ export class GameEngine {
       boardModifiers.doubleNextPayout = false;
     }
 
-    if (boardModifiers.redStreakActive && color === 'red' && boardModifiers.redStreakCount) {
+    if (boardModifiers.redStreakActive && betColor === 'red' && boardModifiers.redStreakCount) {
       const mult = Math.min(4.0, 1.0 + boardModifiers.redStreakCount * 0.5);
       damageDealt *= mult;
     }
-    if (boardModifiers.blackStreakActive && color === 'black' && boardModifiers.blackStreakCount) {
+    if (boardModifiers.blackStreakActive && betColor === 'black' && boardModifiers.blackStreakCount) {
       const mult = Math.min(4.0, 1.0 + boardModifiers.blackStreakCount * 0.5);
       damageDealt *= mult;
     }
@@ -685,16 +730,17 @@ export class GameEngine {
 
     const activeWheel = this.battleState.enemyWheel;
     const color = getSlotColor(winningNum, activeWheel, this.battleState.boardModifiers);
+    const betColor = getBetColor(color);
     let isWin = false;
 
     // Check if the enemy's bet matches the settled slot
     this.battleState.bets.forEach(bet => {
-      if (bet.type === 'red' && color === 'red') {
+      if (bet.type === 'red' && betColor === 'red') {
         isWin = true;
-      } else if (bet.type === 'black' && color === 'black') {
+      } else if (bet.type === 'black' && betColor === 'black') {
         isWin = true;
       } else if (bet.type === 'green') {
-        const isGreenSlot = activeWheel.greenNumbers.includes(winningNum);
+        const isGreenSlot = activeWheel.greenNumbers.includes(winningNum) || betColor === 'green';
         if (isGreenSlot) isWin = true;
       } else if (bet.type === 'number' && bet.numberValue === winningNum) {
         isWin = true;
@@ -737,6 +783,7 @@ export class GameEngine {
     this.battleState.lastSpinResult = {
       number: winningNum,
       color,
+      betColor,
       damageDealt: 0,
       playerDamageTaken,
       betsEvaluated: this.battleState.bets.map(b => ({ ...b })),
@@ -1111,7 +1158,7 @@ export class GameEngine {
     this.runState.deck.push(getCardById(cardId));
   }
 
-  devTeleport(nodeType: 'combat' | 'elite' | 'boss' | 'shop' | 'event') {
+  devTeleport(nodeType: 'combat' | 'elite' | 'boss' | 'shop' | 'event' | 'forge') {
     // Clear active combat if teleporting
     this.battleState = null;
     
@@ -1121,6 +1168,9 @@ export class GameEngine {
       this.runState.gameState = 'SHOP';
     } else if (nodeType === 'event') {
       this.runState.gameState = 'EVENT';
+    } else if (nodeType === 'forge') {
+      this.runState.gameState = 'FORGE';
+      this.initForge();
     }
   }
 
@@ -1143,83 +1193,123 @@ export class GameEngine {
     return this.playerPhysics;
   }
 
+  // --- STORE / LOADOUT SYSTEM ---
+
+  initStore() {
+    // 1. Generate starter loadout: 5 random commons + 1 random common wheel
+    this.runState.deck = [];
+    const commonKeys = Object.keys(CARD_DATABASE).filter(k => CARD_DATABASE[k].rarity === 'common');
+    const usedKeys: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const available = commonKeys.filter(k => !usedKeys.includes(k));
+      if (available.length > 0) {
+        const randKey = available[Math.floor(Math.random() * available.length)];
+        this.runState.deck.push(getCardById(randKey));
+        usedKeys.push(randKey);
+      }
+    }
+
+    // Assign random common wheel
+    const starterWheel = getRandomCommonWheel();
+    this.runState.selectedWheelId = starterWheel.id;
+    this.runState.playerWheel = starterWheel;
+
+    // 2. Generate store inventory: 6 cards (4 uncommon + 2 rare) + 3 wheels (2 uncommon + 1 rare)
+    const storeItems: StoreItem[] = [];
+    
+    // Cards
+    const uncommonCardKeys = Object.keys(CARD_DATABASE).filter(k => CARD_DATABASE[k].rarity === 'uncommon');
+    const rareCardKeys = Object.keys(CARD_DATABASE).filter(k => CARD_DATABASE[k].rarity === 'rare');
+    this.shuffle(uncommonCardKeys);
+    this.shuffle(rareCardKeys);
+    
+    for (let i = 0; i < 4 && i < uncommonCardKeys.length; i++) {
+      const key = uncommonCardKeys[i];
+      const card = CARD_DATABASE[key];
+      storeItems.push({
+        id: `store_card_${i}`,
+        type: 'card',
+        itemId: key,
+        name: card.name,
+        description: card.description,
+        rarity: 'uncommon',
+        pointsCost: 3,
+        purchased: false
+      });
+    }
+    for (let i = 0; i < 2 && i < rareCardKeys.length; i++) {
+      const key = rareCardKeys[i];
+      const card = CARD_DATABASE[key];
+      storeItems.push({
+        id: `store_card_rare_${i}`,
+        type: 'card',
+        itemId: key,
+        name: card.name,
+        description: card.description,
+        rarity: 'rare',
+        pointsCost: 7,
+        purchased: false
+      });
+    }
+
+    // Wheels
+    const storeWheels = generateStoreWheels();
+    storeWheels.forEach((w, idx) => {
+      storeItems.push({
+        id: `store_wheel_${idx}`,
+        type: 'wheel',
+        itemId: w.id,
+        name: w.name,
+        description: w.description,
+        rarity: w.rarity || 'common',
+        pointsCost: w.pointsCost || 5,
+        purchased: false
+      });
+    });
+
+    this.runState.storePoints = 10;
+    this.runState.storeItems = storeItems;
+    this.runState.gameState = 'LOADOUT_STORE';
+  }
+
+  purchaseStoreItem(itemId: string): boolean {
+    if (!this.runState.storeItems || this.runState.storePoints === undefined) return false;
+    
+    const item = this.runState.storeItems.find(i => i.id === itemId);
+    if (!item || item.purchased) return false;
+    if (this.runState.storePoints < item.pointsCost) return false;
+
+    this.runState.storePoints -= item.pointsCost;
+    item.purchased = true;
+
+    if (item.type === 'card') {
+      this.runState.deck.push(getCardById(item.itemId));
+    } else if (item.type === 'wheel') {
+      const allWheels = getAllWheels();
+      const wheel = allWheels.find(w => w.id === item.itemId);
+      if (wheel) {
+        this.runState.selectedWheelId = wheel.id;
+        this.runState.playerWheel = JSON.parse(JSON.stringify(wheel));
+      }
+    }
+
+    return true;
+  }
+
+  completeStore() {
+    this.runState.storeItems = undefined;
+    this.runState.storePoints = undefined;
+    this.runState.gameState = 'MAP';
+  }
+
+  // Legacy compatibility
   selectStartingWheel(wheelId: string): boolean {
     const template = WHEEL_TEMPLATES[wheelId];
     if (template) {
       this.runState.selectedWheelId = wheelId;
       this.runState.playerWheel = JSON.parse(JSON.stringify(template));
-      if (wheelId === 'custom') {
-        return true;
-      }
-      // Transition to deck draft instead of directly to map
-      this.initDraft();
     }
     return false;
-  }
-
-  selectCustomWheel(customConfig: WheelConfig) {
-    this.runState.selectedWheelId = 'custom';
-    this.runState.playerWheel = customConfig;
-    this.initDraft();
-  }
-
-  // --- DECK DRAFT SYSTEM ---
-
-  initDraft() {
-    this.runState.deck = []; // Start with empty deck
-
-    // 1. Add 5 random Common cards to the starting deck
-    const commonKeys = Object.keys(CARD_DATABASE).filter(k => CARD_DATABASE[k].rarity === 'common');
-    for (let i = 0; i < 5; i++) {
-      if (commonKeys.length > 0) {
-        const randKey = commonKeys[Math.floor(Math.random() * commonKeys.length)];
-        this.runState.deck.push(getCardById(randKey));
-      }
-    }
-
-    // 2. Prepare 3 Rare cards for Pick 1
-    const rareKeys = Object.keys(CARD_DATABASE).filter(k => CARD_DATABASE[k].rarity === 'rare');
-    const shuffledRare = [...rareKeys];
-    this.shuffle(shuffledRare);
-    const rareChoices = shuffledRare.slice(0, 3).map(k => getCardById(k));
-
-    // 3. Prepare 3 Uncommon cards for Pick 2
-    const uncommonKeys = Object.keys(CARD_DATABASE).filter(k => CARD_DATABASE[k].rarity === 'uncommon');
-    const shuffledUncommon = [...uncommonKeys];
-    this.shuffle(shuffledUncommon);
-    const uncommonChoices = shuffledUncommon.slice(0, 3).map(k => getCardById(k));
-
-    // Combine into draft pile: [0, 1, 2] = Rare, [3, 4, 5] = Uncommon
-    this.runState.draftPile = [...rareChoices, ...uncommonChoices];
-    this.runState.draftProgress = 0;
-    this.runState.gameState = 'DECK_DRAFT';
-  }
-
-  getDraftChoices(): Card[] {
-    if (!this.runState.draftPile || this.runState.draftProgress === undefined) return [];
-    if (this.runState.draftProgress >= 2) return [];
-    const start = (this.runState.draftProgress) * 3;
-    return this.runState.draftPile.slice(start, start + 3);
-  }
-
-  pickDraftCard(cardId: string): boolean {
-    if (!this.runState.draftPile || this.runState.draftProgress === undefined) return false;
-    if (this.runState.draftProgress >= 2) return false;
-    
-    const choices = this.getDraftChoices();
-    const picked = choices.find(c => c.id === cardId);
-    if (!picked) return false;
-    
-    this.runState.deck.push(picked);
-    this.runState.draftProgress! += 1;
-    
-    return true;
-  }
-
-  completeDraft() {
-    this.runState.draftPile = undefined;
-    this.runState.draftProgress = undefined;
-    this.runState.gameState = 'MAP';
   }
 
   // --- CARD CODEX ---
@@ -1249,5 +1339,296 @@ export class GameEngine {
       return true;
     }
     return false;
+  }
+
+  // --- FORGE / BUILDER SYSTEM ---
+
+  initForge() {
+    this.runState.forgeRerollCount = 0;
+    this.runState.forgeCards = this.generateForgeOffers();
+  }
+
+  generateForgeOffers(): ForgeCard[] {
+    const offers: ForgeCard[] = [];
+    const wheel = this.runState.playerWheel;
+
+    while (offers.length < 3) {
+      // Pick Rarity
+      const rarityRoll = Math.random();
+      let rarity: 'bronze' | 'silver' | 'gold' = 'bronze';
+      if (rarityRoll < 0.15) {
+        rarity = 'gold';
+      } else if (rarityRoll < 0.50) { // 35% silver, 50% bronze
+        rarity = 'silver';
+      }
+
+      // Roll card type based on rarity
+      let type: 'destroy_random' | 'remove_color' | 'remove_green' | 'add_color' | 'convert_color' | 'upgrade_multiplier';
+      
+      if (rarity === 'bronze') {
+        const pool: ('destroy_random' | 'remove_color' | 'add_color' | 'upgrade_multiplier')[] = [
+          'destroy_random', 'remove_color', 'add_color', 'upgrade_multiplier'
+        ];
+        type = pool[Math.floor(Math.random() * pool.length)];
+      } else if (rarity === 'silver') {
+        const pool: ('destroy_random' | 'remove_color' | 'remove_green' | 'add_color' | 'convert_color' | 'upgrade_multiplier')[] = [
+          'destroy_random', 'remove_color', 'remove_green', 'add_color', 'convert_color', 'upgrade_multiplier'
+        ];
+        type = pool[Math.floor(Math.random() * pool.length)];
+      } else { // gold
+        const pool: ('destroy_random' | 'add_color' | 'convert_color' | 'upgrade_multiplier')[] = [
+          'destroy_random', 'add_color', 'convert_color', 'upgrade_multiplier'
+        ];
+        type = pool[Math.floor(Math.random() * pool.length)];
+      }
+
+      let name = '';
+      let description = '';
+      let cost = 10;
+      let effectParams: any = {};
+      let isValid = true;
+
+      if (type === 'destroy_random') {
+        const count = rarity === 'bronze' ? 2 : rarity === 'silver' ? 3 : 4;
+        cost = rarity === 'bronze' ? 10 : rarity === 'silver' ? 15 : 20;
+        name = `${rarity.toUpperCase()} CRUCIBLE`;
+        description = `Destroy ${count} random slots on your wheel.`;
+        effectParams = { count };
+        
+        // Validation: must keep at least 2 slots after destruction
+        if (wheel.numbers.length - count < 2) {
+          isValid = false;
+        }
+      } else if (type === 'remove_color') {
+        const count = rarity === 'bronze' ? 1 : rarity === 'silver' ? 2 : 3;
+        cost = rarity === 'bronze' ? 8 : rarity === 'silver' ? 12 : 18;
+        const color = Math.random() < 0.5 ? 'red' : 'black';
+        name = `${color.toUpperCase()} PURGE`;
+        description = `Destroy ${count} random ${color} slots on your wheel.`;
+        effectParams = { count, color };
+
+        // Validation: must have enough slots of that color, and keep at least 2 slots
+        const matchingSlots = wheel.numbers.filter(n => getSlotColor(n, wheel) === color);
+        if (matchingSlots.length < count || wheel.numbers.length - count < 2) {
+          isValid = false;
+        }
+      } else if (type === 'remove_green') {
+        cost = 10;
+        name = 'GREEN EXORCISM';
+        description = 'Destroy 1 random green or gold slot on your wheel.';
+        effectParams = { count: 1, color: 'green' };
+
+        // Validation: must have at least one green/gold slot, and keep at least 2 slots
+        const greenSlots = wheel.numbers.filter(n => getSlotColor(n, wheel) === 'green' || getSlotColor(n, wheel) === 'gold');
+        if (greenSlots.length < 1 || wheel.numbers.length - 1 < 2) {
+          isValid = false;
+        }
+      } else if (type === 'add_color') {
+        let color: SlotColor = 'red';
+        let count = 1;
+        if (rarity === 'bronze') {
+          color = Math.random() < 0.5 ? 'red' : 'black';
+          count = Math.random() < 0.5 ? 1 : 2;
+          cost = count === 1 ? 8 : 12;
+          name = `${color.toUpperCase()} INJECTION`;
+          description = `Add ${count} missing slots to your wheel as ${color}.`;
+        } else if (rarity === 'silver') {
+          const colorsPool: SlotColor[] = ['red', 'black', 'gold', 'purple', 'cyan'];
+          color = colorsPool[Math.floor(Math.random() * colorsPool.length)];
+          if (color === 'red' || color === 'black') {
+            count = 2;
+            cost = 12;
+          } else {
+            count = 1;
+            cost = 15;
+          }
+          name = `${color.toUpperCase()} FORGE`;
+          description = `Add ${count} missing slots to your wheel as ${color.toUpperCase()}.`;
+        } else { // gold
+          const colorsPool: SlotColor[] = ['gold', 'purple', 'cyan', 'crimson'];
+          color = colorsPool[Math.floor(Math.random() * colorsPool.length)];
+          count = color === 'crimson' ? 1 : 2;
+          cost = 22;
+          name = `${color.toUpperCase()} INFUSION`;
+          description = `Add ${count} missing slots to your wheel as ${color.toUpperCase()}.`;
+        }
+        effectParams = { count, color };
+
+        // Validation: find missing numbers in 0-36
+        const missing = [];
+        for (let i = 0; i <= 36; i++) {
+          if (!wheel.numbers.includes(i)) missing.push(i);
+        }
+        if (missing.length < count) {
+          isValid = false;
+        }
+      } else if (type === 'convert_color') {
+        let fromColor: SlotColor = 'red';
+        let toColor: SlotColor = 'green';
+        let count = 2;
+        
+        if (rarity === 'silver') {
+          fromColor = Math.random() < 0.5 ? 'red' : 'black';
+          const toPool: SlotColor[] = ['green', 'gold', 'purple', 'cyan'];
+          toColor = toPool[Math.floor(Math.random() * toPool.length)];
+          count = 2;
+          cost = 14;
+          name = `${fromColor.toUpperCase()} MUTATION`;
+          description = `Convert ${count} random ${fromColor.toUpperCase()} slots to ${toColor.toUpperCase()}.`;
+        } else { // gold
+          fromColor = Math.random() < 0.5 ? 'red' : 'black';
+          const toPool: SlotColor[] = ['green', 'gold', 'purple', 'cyan', 'crimson'];
+          toColor = toPool[Math.floor(Math.random() * toPool.length)];
+          count = toColor === 'crimson' ? 2 : 3;
+          cost = toColor === 'crimson' ? 25 : 20;
+          name = `${fromColor.toUpperCase()} ALCHEMY`;
+          description = `Convert ${count} random ${fromColor.toUpperCase()} slots to ${toColor.toUpperCase()}.`;
+        }
+        
+        effectParams = { count, fromColor, toColor };
+
+        // Validation: wheel must have at least 'count' slots of 'fromColor'
+        const matchingSlots = wheel.numbers.filter(n => getSlotColor(n, wheel) === fromColor);
+        if (matchingSlots.length < count) {
+          isValid = false;
+        }
+      } else if (type === 'upgrade_multiplier') {
+        cost = rarity === 'bronze' ? 10 : rarity === 'silver' ? 18 : 25;
+        const categories: ('red' | 'black' | 'green' | 'number' | 'odd' | 'even')[] = ['red', 'black', 'green', 'number', 'odd', 'even'];
+        let category = categories[Math.floor(Math.random() * categories.length)];
+        
+        if (rarity === 'gold') {
+          category = Math.random() < 0.5 ? 'green' : 'number';
+        } else if (rarity === 'silver') {
+          category = Math.random() < 0.4 ? 'green' : Math.random() < 0.8 ? 'number' : 'red';
+        } else {
+          category = Math.random() < 0.25 ? 'red' : Math.random() < 0.5 ? 'black' : Math.random() < 0.75 ? 'odd' : 'even';
+        }
+
+        let upgradeAmount = 0.2;
+        if (category === 'green' || category === 'number') {
+          upgradeAmount = rarity === 'silver' ? 2.0 : rarity === 'gold' ? 5.0 : 1.0;
+        } else {
+          upgradeAmount = rarity === 'gold' ? 0.5 : 0.2;
+        }
+
+        name = `${category.toUpperCase()} BOOST`;
+        description = `Upgrade ${category} bet payout multiplier by +${upgradeAmount}x.`;
+        effectParams = { upgradeType: category, upgradeAmount };
+      }
+
+      if (isValid) {
+        if (!offers.some(o => o.name === name)) {
+          offers.push({
+            id: `forge-card-${offers.length}-${Date.now()}`,
+            name,
+            description,
+            rarity,
+            cost,
+            effect: { type: type as any, params: effectParams },
+            purchased: false
+          });
+        }
+      }
+    }
+
+    return offers;
+  }
+
+  purchaseForgeCard(cardId: string): boolean {
+    if (!this.runState.forgeCards) return false;
+    const card = this.runState.forgeCards.find(c => c.id === cardId);
+    if (!card || card.purchased) return false;
+    if (this.runState.chips < card.cost) return false;
+
+    // Deduct cost
+    this.runState.chips -= card.cost;
+    card.purchased = true;
+
+    const wheel = this.runState.playerWheel;
+    const effect = card.effect;
+
+    const updateSlotColor = (num: number, newColor: SlotColor) => {
+      wheel.colors[num] = newColor;
+      if (newColor === 'green') {
+        if (!wheel.greenNumbers.includes(num)) {
+          wheel.greenNumbers.push(num);
+        }
+      } else {
+        wheel.greenNumbers = wheel.greenNumbers.filter(n => n !== num);
+      }
+    };
+
+    if (effect.type === 'destroy_random') {
+      const count = effect.params.count || 1;
+      const slots = [...wheel.numbers];
+      for (let i = 0; i < count; i++) {
+        if (slots.length <= 2) break;
+        const ridx = Math.floor(Math.random() * slots.length);
+        const removedNum = slots.splice(ridx, 1)[0];
+        wheel.numbers = wheel.numbers.filter(n => n !== removedNum);
+        wheel.greenNumbers = wheel.greenNumbers.filter(n => n !== removedNum);
+        delete wheel.colors[removedNum];
+      }
+    } else if (effect.type === 'remove_color') {
+      const count = effect.params.count || 1;
+      const color = effect.params.color!;
+      for (let i = 0; i < count; i++) {
+        const matching = wheel.numbers.filter(n => getSlotColor(n, wheel) === color);
+        if (matching.length === 0 || wheel.numbers.length <= 2) break;
+        const removedNum = matching[Math.floor(Math.random() * matching.length)];
+        wheel.numbers = wheel.numbers.filter(n => n !== removedNum);
+        wheel.greenNumbers = wheel.greenNumbers.filter(n => n !== removedNum);
+        delete wheel.colors[removedNum];
+      }
+    } else if (effect.type === 'remove_green') {
+      const count = effect.params.count || 1;
+      for (let i = 0; i < count; i++) {
+        const matching = wheel.numbers.filter(n => getSlotColor(n, wheel) === 'green' || getSlotColor(n, wheel) === 'gold');
+        if (matching.length === 0 || wheel.numbers.length <= 2) break;
+        const removedNum = matching[Math.floor(Math.random() * matching.length)];
+        wheel.numbers = wheel.numbers.filter(n => n !== removedNum);
+        wheel.greenNumbers = wheel.greenNumbers.filter(n => n !== removedNum);
+        delete wheel.colors[removedNum];
+      }
+    } else if (effect.type === 'add_color') {
+      const count = effect.params.count || 1;
+      const color = effect.params.color!;
+      for (let i = 0; i < count; i++) {
+        const missing = [];
+        for (let j = 0; j <= 36; j++) {
+          if (!wheel.numbers.includes(j)) missing.push(j);
+        }
+        if (missing.length === 0) break;
+        const addedNum = missing[Math.floor(Math.random() * missing.length)];
+        wheel.numbers.push(addedNum);
+        updateSlotColor(addedNum, color);
+      }
+    } else if (effect.type === 'convert_color') {
+      const count = effect.params.count || 1;
+      const fromColor = effect.params.fromColor!;
+      const toColor = effect.params.toColor!;
+      
+      for (let i = 0; i < count; i++) {
+        const matching = wheel.numbers.filter(n => getSlotColor(n, wheel) === fromColor);
+        if (matching.length === 0) break;
+        const targetNum = matching[Math.floor(Math.random() * matching.length)];
+        updateSlotColor(targetNum, toColor);
+      }
+    } else if (effect.type === 'upgrade_multiplier') {
+      const ut = effect.params.upgradeType!;
+      const val = effect.params.upgradeAmount!;
+      wheel.payoutMultipliers[ut] = parseFloat((wheel.payoutMultipliers[ut] + val).toFixed(1));
+    }
+
+    return true;
+  }
+
+  rerollForge(): boolean {
+    if (this.runState.chips < 5) return false;
+    this.runState.chips -= 5;
+    this.runState.forgeRerollCount = (this.runState.forgeRerollCount || 0) + 1;
+    this.runState.forgeCards = this.generateForgeOffers();
+    return true;
   }
 }

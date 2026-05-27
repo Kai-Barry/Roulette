@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Card, Enemy, WheelConfig } from '../core/Types';
+import { Card, Enemy, WheelConfig, PhysicsModifiers, ForgeCard } from '../core/Types';
 import { getSlotColor, WHEEL_NUMBERS } from '../physics/RoulettePhysics';
 
 export class WheelVisual {
@@ -8,13 +8,23 @@ export class WheelVisual {
   wheelCone!: THREE.Group;
   ballMesh!: THREE.Mesh;
   ringMesh!: THREE.Mesh;
+  highlightMesh!: THREE.Mesh;
+  trailGroup!: THREE.Group;
+  ballLight!: THREE.PointLight;
+  isEnemyWheel: boolean = false;
+  
+  // Cache variables for ball speed check
+  lastBallX?: number;
+  lastBallZ?: number;
   
   constructor(isEnemy: boolean, config: WheelConfig) {
+    this.isEnemyWheel = isEnemy;
     this.group = new THREE.Group();
     this.buildWheel(isEnemy, config);
   }
 
   rebuildWheel(isEnemy: boolean, config: WheelConfig) {
+    this.isEnemyWheel = isEnemy;
     // Dispose previous geometries and materials to avoid memory leaks
     this.group.traverse((child) => {
       if (child instanceof THREE.Mesh) {
@@ -131,6 +141,53 @@ export class WheelVisual {
     this.ballMesh = new THREE.Mesh(ballGeo, ballMat);
     this.ballMesh.castShadow = true;
     this.group.add(this.ballMesh);
+
+    // Dynamic point light for glowing card effects
+    this.ballLight = new THREE.PointLight(0xffffff, 0.0, 1.2);
+    this.ballMesh.add(this.ballLight);
+
+    // Initialize trail group for physics modifier visual effect trails
+    this.trailGroup = new THREE.Group();
+    this.group.add(this.trailGroup);
+
+    // Create a ring sector for the landed slot highlight glow
+    const highlightGeo = new THREE.RingGeometry(0.70, 0.85, 16, 1, -slotAngle / 2, slotAngle);
+    const highlightMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    this.highlightMesh = new THREE.Mesh(highlightGeo, highlightMat);
+    this.highlightMesh.rotation.x = -Math.PI / 2;
+    this.highlightMesh.position.y = 0.028;
+    this.wheelCone.add(this.highlightMesh);
+
+    // 4. Static Deflector Pins (8 pins on the bowl slope, matching physics at R = 0.82)
+    const pinCount = 8;
+    const pinSpacing = (Math.PI * 2) / pinCount;
+    const R_PIN = 0.82;
+    const tPinVis = (R_PIN - 0.65) / (1.0 - 0.65);
+    const pinFloorY = 0.061 + (0.10 - 0.061) * tPinVis - 0.035; // surface height
+    
+    const pinGeo = new THREE.CylinderGeometry(0.016, 0.016, 0.03, 6);
+    const pinMat = new THREE.MeshPhongMaterial({
+      color: isEnemy ? 0x9e9e9e : 0xffd700,
+      shininess: 100
+    });
+    
+    for (let i = 0; i < pinCount; i++) {
+      const pinAngle = i * pinSpacing;
+      const pinMesh = new THREE.Mesh(pinGeo, pinMat);
+      pinMesh.position.x = R_PIN * Math.cos(pinAngle);
+      pinMesh.position.z = R_PIN * Math.sin(pinAngle);
+      pinMesh.position.y = pinFloorY + 0.015; // center of cylinder
+      pinMesh.castShadow = true;
+      pinMesh.receiveShadow = true;
+      this.group.add(pinMesh);
+    }
   }
 
   private createWheelTexture(isEnemy: boolean, config: WheelConfig): THREE.Texture {
@@ -156,6 +213,14 @@ export class WheelVisual {
         colorStr = isEnemy ? '#b71c1c' : '#d32f2f'; // cold deep red vs warm red
       } else if (color === 'black') {
         colorStr = isEnemy ? '#111111' : '#222222'; // obsidian slate vs dark charcoal
+      } else if (color === 'gold') {
+        colorStr = '#ffd700'; // bright gold
+      } else if (color === 'purple') {
+        colorStr = '#9c27b0'; // deep purple
+      } else if (color === 'cyan') {
+        colorStr = '#00bcd4'; // teal cyan
+      } else if (color === 'crimson') {
+        colorStr = '#ff007f'; // vibrant ruby/rose crimson
       } else {
         colorStr = isEnemy ? '#64dd17' : '#2ebd42'; // neon green vs green
       }
@@ -224,7 +289,16 @@ export class WheelVisual {
     return texture;
   }
 
-  update(wheelAngle: number, ballAngle: number, ballRadius: number, ballHeight: number) {
+  update(
+    wheelAngle: number,
+    ballAngle: number,
+    ballRadius: number,
+    ballHeight: number,
+    isSettled: boolean,
+    settledSlotIndex: number,
+    config: WheelConfig,
+    mods?: PhysicsModifiers
+  ) {
     // Update wheel rotating parts
     this.wheelCone.rotation.y = -wheelAngle; // match physical spin direction
 
@@ -232,8 +306,160 @@ export class WheelVisual {
     this.ballMesh.position.x = Math.cos(ballAngle) * ballRadius;
     this.ballMesh.position.z = Math.sin(ballAngle) * ballRadius;
     
-    // Add offset (+ 0.06) so the ball sits visually on top of the visual slots surface (ringMesh)
-    this.ballMesh.position.y = ballHeight + 0.06;
+    // Calculate physical floor height at current radius to determine bounce height
+    let physFloorHeight = 0.02;
+    if (ballRadius > 0.88) {
+      physFloorHeight = 0.15;
+    } else if (ballRadius > 0.65) {
+      const tPhys = (ballRadius - 0.65) / (0.88 - 0.65);
+      physFloorHeight = 0.02 + 0.13 * tPhys;
+    }
+    const bounceHeight = Math.max(0, ballHeight - physFloorHeight);
+
+    // Map physical floor height to visual floor height dynamically
+    // at R_INNER (0.65), visual floor is 0.026 + 0.035 (ringMesh + ball radius) = 0.061
+    // at R_OUTER (1.0), visual floor is 0.10 (rim center)
+    const tVis = (ballRadius - 0.65) / (1.0 - 0.65);
+    const visualFloorHeight = 0.061 + (0.10 - 0.061) * Math.max(0, Math.min(1, tVis));
+
+    this.ballMesh.position.y = visualFloorHeight + bounceHeight;
+
+    // --- Dynamic Ball Glow & Custom Material Coloring based on active Physics Card ---
+    let lightColor = 0xffffff;
+    let lightIntensity = 0.0;
+    let ballColor = this.isEnemyWheel ? 0xffaaaa : 0xeeeeee;
+    let ballEmissive = this.isEnemyWheel ? 0x990000 : 0x333333;
+
+    if (mods) {
+      if (mods.targetZoneBias > 0) {
+        // Lodestone active: magnetic cyan-blue pulse
+        lightColor = 0x00d2ff;
+        lightIntensity = 3.5;
+        ballColor = 0x80e8ff;
+        ballEmissive = 0x0055ff;
+      } else if (mods.nudgeCheatActive) {
+        // Glitch cheat: bright magenta glow
+        lightColor = 0xff00ff;
+        lightIntensity = 3.5;
+        ballColor = 0xff80ff;
+        ballEmissive = 0xaa00aa;
+      } else if (mods.friction !== 1.0) {
+        if (mods.friction < 1.0) {
+          // Low friction: freezing teal/light-blue
+          lightColor = 0x80deea;
+          lightIntensity = 3.0;
+          ballColor = 0xe0f7fa;
+          ballEmissive = 0x006064;
+        } else {
+          // High friction: hot orange-red spark glow
+          lightColor = 0xff3d00;
+          lightIntensity = 3.0;
+          ballColor = 0xff9e80;
+          ballEmissive = 0xb71c1c;
+        }
+      } else if (mods.wheelTilt > 0) {
+        // Tilted gravity: deep purple gravity distortion glow
+        lightColor = 0xb388ff;
+        lightIntensity = 3.0;
+        ballColor = 0xd1c4e9;
+        ballEmissive = 0x512da8;
+      } else if (mods.ballMass !== 1.0) {
+        if (mods.ballMass > 1.0) {
+          // Heavy ball: radioactive green
+          lightColor = 0x00e676;
+          lightIntensity = 3.0;
+          ballColor = 0xb9f6ca;
+          ballEmissive = 0x00c853;
+        } else {
+          // Light ball: yellow/white electric glow
+          lightColor = 0xffeb3b;
+          lightIntensity = 3.0;
+          ballColor = 0xfff9c4;
+          ballEmissive = 0xf57f17;
+        }
+      }
+    }
+
+    if (this.ballLight) {
+      this.ballLight.color.setHex(lightColor);
+      this.ballLight.intensity = lightIntensity;
+    }
+    if (this.ballMesh && this.ballMesh.material) {
+      const mat = this.ballMesh.material as THREE.MeshStandardMaterial;
+      mat.color.setHex(ballColor);
+      mat.emissive.setHex(ballEmissive);
+    }
+
+    // --- Spawn Trail Particles if special physics card active ---
+    const activeModsExist = mods && (mods.targetZoneBias > 0 || mods.nudgeCheatActive || mods.friction !== 1.0 || mods.wheelTilt > 0 || mods.ballMass !== 1.0);
+    const speed = Math.abs(this.ballMesh.position.x - (this.lastBallX || 0)) + Math.abs(this.ballMesh.position.z - (this.lastBallZ || 0));
+    this.lastBallX = this.ballMesh.position.x;
+    this.lastBallZ = this.ballMesh.position.z;
+
+    if (activeModsExist && speed > 0.005 && Math.random() < 0.85 && this.trailGroup) {
+      const trailGeo = new THREE.SphereGeometry(0.018, 4, 4);
+      const trailMat = new THREE.MeshBasicMaterial({
+        color: lightColor,
+        transparent: true,
+        opacity: 0.8,
+        fog: false
+      });
+      const p = new THREE.Mesh(trailGeo, trailMat);
+      p.position.copy(this.ballMesh.position);
+      p.userData = { age: 0, maxAge: 12 };
+      this.trailGroup.add(p);
+    }
+
+    // Update trail particles life cycles
+    if (this.trailGroup) {
+      for (let i = this.trailGroup.children.length - 1; i >= 0; i--) {
+        const p = this.trailGroup.children[i] as THREE.Mesh;
+        p.userData.age += 1;
+        const t = p.userData.age / p.userData.maxAge;
+        const s = 1.0 - t;
+        p.scale.set(s, s, s);
+        
+        const mat = p.material as THREE.MeshBasicMaterial;
+        mat.opacity = 0.8 * (1.0 - t);
+        
+        if (p.userData.age >= p.userData.maxAge) {
+          this.trailGroup.remove(p);
+          p.geometry.dispose();
+          mat.dispose();
+        }
+      }
+    }
+
+    // --- Lands Highlight Ring sector ---
+    if (this.highlightMesh) {
+      if (isSettled && settledSlotIndex >= 0 && settledSlotIndex < config.numbers.length) {
+        const num = config.numbers[settledSlotIndex];
+        const color = getSlotColor(num, config);
+        let glowColor = 0xffffff;
+        if (color === 'red') glowColor = 0xff0000;
+        else if (color === 'green') glowColor = 0x00ff00;
+        else if (color === 'black') glowColor = 0x444444;
+        else if (color === 'gold') glowColor = 0xffd700;
+        else if (color === 'purple') glowColor = 0x9c27b0;
+        else if (color === 'cyan') glowColor = 0x00bcd4;
+        else if (color === 'crimson') glowColor = 0xff007f;
+        
+        const mat = this.highlightMesh.material as THREE.MeshBasicMaterial;
+        mat.color.setHex(glowColor);
+        
+        const slotAngle = (Math.PI * 2) / config.numbers.length;
+        this.highlightMesh.rotation.z = -settledSlotIndex * slotAngle;
+        
+        // Pulse opacity over time
+        const pulse = 0.5 + Math.sin(Date.now() * 0.01) * 0.3;
+        mat.opacity = pulse;
+        this.highlightMesh.visible = true;
+      } else {
+        const mat = this.highlightMesh.material as THREE.MeshBasicMaterial;
+        mat.opacity = 0.0;
+        this.highlightMesh.visible = false;
+      }
+    }
   }
 }
 
@@ -501,5 +727,191 @@ export class EnemyVisual {
       this.head.rotation.y *= 0.95;
       this.head.rotation.x *= 0.95;
     }
+  }
+}
+
+export class ForgeCardVisual {
+  mesh: THREE.Mesh;
+  targetPosition = new THREE.Vector3();
+  targetRotation = new THREE.Euler();
+  cardId: string;
+  rarity: 'bronze' | 'silver' | 'gold';
+  purchased: boolean = false;
+  
+  constructor(card: ForgeCard) {
+    this.cardId = card.id;
+    this.rarity = card.rarity;
+    this.purchased = card.purchased;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d')!;
+
+    let metalColor = '#2d251e';
+    let rarityColor = '#cd7f32';
+    let label = 'BRONZE';
+    let roughness = 0.65;
+    let metalness = 0.6;
+
+    if (card.rarity === 'silver') {
+      metalColor = '#1f2429';
+      rarityColor = '#aaaaaa';
+      label = 'SILVER';
+      roughness = 0.55;
+      metalness = 0.75;
+    } else if (card.rarity === 'gold') {
+      metalColor = '#2b2408';
+      rarityColor = '#ffd700';
+      label = 'GOLD';
+      roughness = 0.45;
+      metalness = 0.85;
+    }
+
+    ctx.fillStyle = metalColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < canvas.width; x += 16) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+    for (let y = 0; y < canvas.height; y += 16) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = rarityColor;
+    ctx.lineWidth = 14;
+    ctx.strokeRect(7, 7, canvas.width - 14, canvas.height - 14);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(16, 16, canvas.width - 32, canvas.height - 32);
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fillRect(18, 18, canvas.width - 36, 56);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 15px Courier New';
+    ctx.textAlign = 'left';
+    ctx.fillText(card.name, 28, 40);
+
+    ctx.fillStyle = rarityColor;
+    ctx.font = 'bold 20px Courier New';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${card.cost}⚡`, canvas.width - 28, 62);
+
+    ctx.fillStyle = rarityColor;
+    ctx.font = 'bold italic 13px Courier New';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, 28, 92);
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(24, 110, canvas.width - 48, 110);
+    ctx.strokeStyle = rarityColor;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(24, 110, canvas.width - 48, 110);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.fillRect(50, 120, canvas.width - 100, 90);
+    
+    ctx.strokeStyle = rarityColor;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(98, 185);
+    ctx.lineTo(158, 185);
+    ctx.lineTo(148, 165);
+    ctx.lineTo(108, 165);
+    ctx.closePath();
+    ctx.fillStyle = rarityColor;
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.strokeRect(118, 185, 20, 15);
+    
+    ctx.translate(128, 140);
+    ctx.rotate(-Math.PI / 6);
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillRect(-10, -5, 20, 10);
+    ctx.fillStyle = '#8b5a2b';
+    ctx.fillRect(-2, 5, 4, 15);
+    ctx.restore();
+
+    ctx.fillStyle = '#dddddd';
+    ctx.font = '14px Courier New';
+    ctx.textAlign = 'left';
+    const words = card.description.split(' ');
+    let line = '';
+    let y = 245;
+    
+    for (let n = 0; n < words.length; n++) {
+      const testLine = line + words[n] + ' ';
+      const metrics = ctx.measureText(testLine);
+      if (metrics.width > (canvas.width - 48) && n > 0) {
+        ctx.fillText(line, 24, y);
+        line = words[n] + ' ';
+        y += 20;
+      } else {
+        line = testLine;
+      }
+    }
+    ctx.fillText(line, 24, y);
+
+    if (card.purchased) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+      ctx.fillRect(10, 10, canvas.width - 20, canvas.height - 20);
+      ctx.fillStyle = rarityColor;
+      ctx.font = 'bold 36px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('OWNED', canvas.width / 2, canvas.height / 2 + 10);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.needsUpdate = true;
+
+    const cardGeo = new THREE.BoxGeometry(0.38, 0.54, 0.008);
+
+    const metallicColorHex = card.rarity === 'gold' ? 0xffd700 : card.rarity === 'silver' ? 0xcccccc : 0xcd7f32;
+    const backMat = new THREE.MeshStandardMaterial({
+      color: card.purchased ? 0x111111 : metallicColorHex,
+      metalness: card.purchased ? 0.0 : metalness,
+      roughness: card.purchased ? 0.9 : roughness + 0.2,
+      bumpScale: 0.05
+    });
+    const sideMat = new THREE.MeshStandardMaterial({
+      color: card.purchased ? 0x111111 : metallicColorHex,
+      metalness: card.purchased ? 0.0 : metalness,
+      roughness: card.purchased ? 0.9 : roughness
+    });
+    const frontMat = new THREE.MeshLambertMaterial({
+      map: texture
+    });
+
+    const materials = [
+      sideMat, // right
+      sideMat, // left
+      sideMat, // top
+      sideMat, // bottom
+      frontMat, // front
+      backMat   // back
+    ];
+
+    this.mesh = new THREE.Mesh(cardGeo, materials);
+    this.mesh.castShadow = true;
+    this.mesh.userData = { isForgeCard: true, forgeCardId: card.id };
+  }
+
+  update(lerpFactor = 0.15) {
+    this.mesh.position.lerp(this.targetPosition, lerpFactor);
+    const targetQ = new THREE.Quaternion().setFromEuler(this.targetRotation);
+    this.mesh.quaternion.slerp(targetQ, lerpFactor);
   }
 }

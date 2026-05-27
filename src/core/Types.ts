@@ -1,4 +1,8 @@
-export type GameState = 'MENU' | 'WHEEL_SELECT' | 'DECK_DRAFT' | 'MAP' | 'COMBAT' | 'SHOP' | 'EVENT' | 'GAME_OVER' | 'VICTORY';
+export type GameState = 'MENU' | 'LOADOUT_STORE' | 'MAP' | 'COMBAT' | 'SHOP' | 'EVENT' | 'GAME_OVER' | 'VICTORY' | 'FORGE';
+
+export type SlotColor = 'red' | 'black' | 'green' | 'gold' | 'purple' | 'cyan' | 'crimson';
+export type BetColor = 'red' | 'black' | 'green' | 'gold' | 'purple' | 'cyan' | 'crimson';
+export type WheelRarity = 'common' | 'uncommon' | 'rare' | 'legendary';
 
 export type CardType = 'physics' | 'board' | 'payout' | 'utility';
 export type CardRarity = 'common' | 'uncommon' | 'rare' | 'legendary';
@@ -39,7 +43,7 @@ export interface Enemy {
   isBoss: boolean;
 }
 
-export type NodeType = 'combat' | 'elite' | 'event' | 'shop' | 'boss';
+export type NodeType = 'combat' | 'elite' | 'event' | 'shop' | 'boss' | 'forge';
 
 export interface MapNode {
   id: string;
@@ -56,7 +60,7 @@ export interface WheelConfig {
   description: string;
   numbers: number[];
   greenNumbers: number[];
-  colors: Record<number, 'red' | 'black' | 'green'>;
+  colors: Record<number, SlotColor>;
   payoutMultipliers: {
     red: number;
     black: number;
@@ -64,8 +68,14 @@ export interface WheelConfig {
     number: number;
     odd: number;
     even: number;
+    gold?: number;
+    purple?: number;
+    cyan?: number;
+    crimson?: number;
   };
   upgrades: string[]; // IDs of purchased board upgrades
+  rarity?: WheelRarity;
+  pointsCost?: number;
 }
 
 export interface BoardUpgrade {
@@ -75,6 +85,37 @@ export interface BoardUpgrade {
   cost: number;
   effectType: 'multiplier_boost' | 'add_green_slot' | 'convert_to_red' | 'convert_to_black' | 'lucky_number' | 'physics_mod';
   value: any;
+}
+
+export interface StoreItem {
+  id: string;
+  type: 'card' | 'wheel';
+  itemId: string; // card effectId key or wheel id
+  name: string;
+  description: string;
+  rarity: CardRarity | WheelRarity;
+  pointsCost: number;
+  purchased: boolean;
+}
+
+export interface ForgeCard {
+  id: string;
+  name: string;
+  description: string;
+  rarity: 'bronze' | 'silver' | 'gold';
+  cost: number;
+  effect: {
+    type: 'destroy_random' | 'remove_color' | 'remove_green' | 'add_color' | 'upgrade_multiplier' | 'convert_color';
+    params: {
+      count?: number;
+      color?: SlotColor;
+      fromColor?: SlotColor;
+      toColor?: SlotColor;
+      upgradeType?: 'red' | 'black' | 'green' | 'number' | 'odd' | 'even';
+      upgradeAmount?: number;
+    }
+  };
+  purchased: boolean;
 }
 
 export interface RunState {
@@ -89,12 +130,16 @@ export interface RunState {
   gameState: GameState;
   selectedWheelId: string;
   playerWheel: WheelConfig;
-  draftPile?: Card[];
-  draftProgress?: number;
+  // Store system
+  storePoints?: number;
+  storeItems?: StoreItem[];
+  // Forge system
+  forgeCards?: ForgeCard[];
+  forgeRerollCount?: number;
 }
 
 export interface Bet {
-  type: 'red' | 'black' | 'green' | 'number' | 'odd' | 'even';
+  type: 'red' | 'black' | 'green' | 'number' | 'odd' | 'even' | 'gold' | 'purple' | 'cyan' | 'crimson';
   numberValue?: number;
   amount: number;
 }
@@ -133,16 +178,19 @@ export interface BattleState {
   } | null;
   lastSpinResult: {
     number: number;
-    color: 'red' | 'black' | 'green';
+    color: SlotColor;
+    betColor: BetColor;
     damageDealt: number;
     playerDamageTaken: number;
     betsEvaluated?: Bet[];
     cardsActive?: Card[];
+    slotEffect?: string; // description of special color effect that triggered
   } | null;
   physicsModifiers: PhysicsModifiers;
   boardModifiers: BoardModifiers;
   phase: 'betting' | 'spinning' | 'resolved';
   activeWheelOwner: 'player' | 'enemy';
+  isResolving?: boolean;
 }
 
 export interface PhysicsModifiers {

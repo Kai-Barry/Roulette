@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import { GameEngine } from '../core/GameEngine';
-import { WheelVisual, CardVisual, EnemyVisual } from './WheelVisual';
+import { WheelVisual, CardVisual, EnemyVisual, ForgeCardVisual } from './WheelVisual';
 import { PS1Shader } from './PS1Shader';
 import { Card, WheelConfig } from '../core/Types';
 import { getSlotColor } from '../physics/RoulettePhysics';
+import { SoundManager } from '../ui/SoundManager';
 
 export class RenderManager {
   engine: GameEngine;
   container: HTMLElement;
+  sound: SoundManager;
   
   scene!: THREE.Scene;
   handScene!: THREE.Scene;
@@ -53,6 +55,10 @@ export class RenderManager {
     green: THREE.MeshPhongMaterial;
     number: THREE.MeshPhongMaterial;
     blue: THREE.MeshPhongMaterial;
+    gold: THREE.MeshPhongMaterial;
+    purple: THREE.MeshPhongMaterial;
+    cyan: THREE.MeshPhongMaterial;
+    crimson: THREE.MeshPhongMaterial;
   };
   
   // Cards management
@@ -62,6 +68,19 @@ export class RenderManager {
   
   playedCardVisuals: CardVisual[] = [];
   playedCardsGroup!: THREE.Group;
+  
+  // Forge scene structures
+  forgeScene!: THREE.Scene;
+  forgeCardsGroup!: THREE.Group;
+  forgeCardsVisuals: ForgeCardVisual[] = [];
+  forgeSparksGroup!: THREE.Group;
+  forgeSparks: THREE.Mesh[] = [];
+  forgeFurnaceLight!: THREE.PointLight;
+  forgePedestal!: THREE.Mesh;
+  hoveredForgeCardId: string | null = null;
+  private lastHoveredForgeCardId: string | null = null;
+  onForgeCardHover?: (cardId: string | null) => void;
+  onForgeCardClicked?: (cardId: string) => void;
   
   // Raycasting
   raycaster = new THREE.Raycaster();
@@ -111,13 +130,16 @@ export class RenderManager {
   onPlayedCardClicked?: (cardId: string) => void;
   onBellClicked?: () => void;
   onBetPlaced?: () => void;
+  onBounce?: (type: 'pin' | 'divider', speed: number) => void;
 
-  constructor(engine: GameEngine, container: HTMLElement) {
+  constructor(engine: GameEngine, container: HTMLElement, sound: SoundManager) {
     this.engine = engine;
     this.container = container;
+    this.sound = sound;
     
     this.initThree();
     this.buildScene();
+    this.buildForgeScene();
     this.setupPostProcessing();
     this.setupEvents();
     
@@ -255,7 +277,11 @@ export class RenderManager {
       black: new THREE.MeshPhongMaterial({ color: 0x333333, shininess: 40 }), // lighter charcoal
       green: new THREE.MeshPhongMaterial({ color: 0x43a047, shininess: 40 }),
       number: new THREE.MeshPhongMaterial({ color: 0xffd54f, shininess: 60 }),
-      blue: new THREE.MeshPhongMaterial({ color: 0x0288d1, shininess: 40 })
+      blue: new THREE.MeshPhongMaterial({ color: 0x0288d1, shininess: 40 }),
+      gold: new THREE.MeshPhongMaterial({ color: 0xffd700, shininess: 60 }),
+      purple: new THREE.MeshPhongMaterial({ color: 0x9c27b0, shininess: 40 }),
+      cyan: new THREE.MeshPhongMaterial({ color: 0x00bcd4, shininess: 40 }),
+      crimson: new THREE.MeshPhongMaterial({ color: 0xff007f, shininess: 40 })
     };
 
     // 2c. 3D Bell Turn Trigger
@@ -365,8 +391,8 @@ export class RenderManager {
 
     // 3. Enemy
     this.enemyVis = new EnemyVisual();
-    this.enemyVis.group.position.set(0, 0.05, -3.0);
-    this.enemyVis.group.scale.set(0.75, 0.75, 0.75);
+    this.enemyVis.group.position.set(0, -0.15, -3.0); // Shifted down to prevent clipping the top of the window
+    this.enemyVis.group.scale.set(0.68, 0.68, 0.68); // Scaled down slightly for better fitting
     this.scene.add(this.enemyVis.group);
 
     // 4. Creepy Closed Cellar Walls & Ceiling (using MeshPhongMaterial + fog + shadow mapping)
@@ -517,6 +543,267 @@ export class RenderManager {
     this.scene.add(this.ambientLight);
   }
 
+  private buildForgeScene() {
+    this.forgeScene = new THREE.Scene();
+    this.forgeScene.fog = new THREE.FogExp2(0x22150a, 0.06); // Warm forge fog
+
+    // Forge lights
+    const ambLight = new THREE.AmbientLight(0x2d211a, 0.4);
+    this.forgeScene.add(ambLight);
+
+    this.forgeFurnaceLight = new THREE.PointLight(0xff5500, 3.5, 6.0);
+    this.forgeFurnaceLight.position.set(1.0, 0.4, -1.2);
+    this.forgeFurnaceLight.castShadow = true;
+    this.forgeScene.add(this.forgeFurnaceLight);
+
+    const centerLight = new THREE.PointLight(0xffa866, 1.5, 5.0);
+    centerLight.position.set(0.0, 2.0, -0.4);
+    centerLight.castShadow = true;
+    this.forgeScene.add(centerLight);
+
+    // Warm headlight right in front of cards - gentle point light to prevent blinding glares
+    const cardLight = new THREE.PointLight(0xffeaad, 1.2, 3.0);
+    cardLight.position.set(0.0, 0.9, 0.7);
+    this.forgeScene.add(cardLight);
+
+    const forgeSpotlight = new THREE.SpotLight(0xffecd2, 2.0, 8.0, Math.PI / 3, 0.5, 1.0);
+    forgeSpotlight.position.set(0.0, 3.0, 0.8);
+    const forgeSpotlightTarget = new THREE.Object3D();
+    forgeSpotlightTarget.position.set(0.0, 0.3, -0.4);
+    this.forgeScene.add(forgeSpotlightTarget);
+    forgeSpotlight.target = forgeSpotlightTarget;
+    forgeSpotlight.castShadow = true;
+    forgeSpotlight.shadow.mapSize.width = 512;
+    forgeSpotlight.shadow.mapSize.height = 512;
+    forgeSpotlight.shadow.bias = -0.002;
+    this.forgeScene.add(forgeSpotlight);
+
+    // Warm medieval blacksmith stones (brighter base values)
+    const floorGeo = new THREE.PlaneGeometry(8, 8);
+    const floorMat = new THREE.MeshPhongMaterial({ color: 0x4a4035, shininess: 4 });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    this.forgeScene.add(floor);
+
+    const wallMat = new THREE.MeshPhongMaterial({ color: 0x554c42, shininess: 2, side: THREE.DoubleSide });
+    
+    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(8, 5), wallMat);
+    backWall.position.set(0, 2.5, -3.0);
+    backWall.receiveShadow = true;
+    this.forgeScene.add(backWall);
+
+    const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(8, 5), wallMat);
+    leftWall.rotation.y = Math.PI / 2;
+    leftWall.position.set(-3.0, 2.5, 0);
+    leftWall.receiveShadow = true;
+    this.forgeScene.add(leftWall);
+
+    const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(8, 5), wallMat);
+    rightWall.rotation.y = -Math.PI / 2;
+    rightWall.position.set(3.0, 2.5, 0);
+    rightWall.receiveShadow = true;
+    this.forgeScene.add(rightWall);
+
+    // Anvil Mesh structure
+    const anvilGroup = new THREE.Group();
+    anvilGroup.position.set(0.0, 0.0, -0.4);
+
+    const blockGeo = new THREE.CylinderGeometry(0.18, 0.20, 0.35, 6);
+    const blockMat = new THREE.MeshPhongMaterial({ color: 0x6a4835, shininess: 5 });
+    const block = new THREE.Mesh(blockGeo, blockMat);
+    block.position.y = 0.175;
+    block.receiveShadow = true;
+    block.castShadow = true;
+    anvilGroup.add(block);
+
+    const flairGeo = new THREE.BoxGeometry(0.24, 0.03, 0.14);
+    const metalMat = new THREE.MeshStandardMaterial({ color: 0x5a5f66, metalness: 0.85, roughness: 0.3 });
+    const flair = new THREE.Mesh(flairGeo, metalMat);
+    flair.position.y = 0.35 + 0.015;
+    flair.castShadow = true;
+    anvilGroup.add(flair);
+
+    const bodyGeo = new THREE.BoxGeometry(0.20, 0.12, 0.10);
+    const body = new THREE.Mesh(bodyGeo, metalMat);
+    body.position.y = 0.35 + 0.03 + 0.06;
+    body.castShadow = true;
+    anvilGroup.add(body);
+
+    const hornGeo = new THREE.ConeGeometry(0.05, 0.12, 6);
+    const horn = new THREE.Mesh(hornGeo, metalMat);
+    horn.rotation.z = Math.PI / 2;
+    horn.position.set(-0.16, 0.35 + 0.03 + 0.06, 0);
+    horn.castShadow = true;
+    anvilGroup.add(horn);
+
+    const tailGeo = new THREE.BoxGeometry(0.08, 0.06, 0.08);
+    const tail = new THREE.Mesh(tailGeo, metalMat);
+    tail.position.set(0.14, 0.35 + 0.03 + 0.09, 0);
+    tail.castShadow = true;
+    anvilGroup.add(tail);
+
+    this.forgeScene.add(anvilGroup);
+
+    // Pedestal for player wheel display
+    const pedestalGeo = new THREE.CylinderGeometry(0.26, 0.30, 0.55, 8);
+    const pedestalMat = new THREE.MeshPhongMaterial({ color: 0x45484c, shininess: 10 });
+    this.forgePedestal = new THREE.Mesh(pedestalGeo, pedestalMat);
+    this.forgePedestal.position.set(-0.9, 0.275, -0.5);
+    this.forgePedestal.receiveShadow = true;
+    this.forgePedestal.castShadow = true;
+    this.forgeScene.add(this.forgePedestal);
+
+    // Furnace
+    const furnaceGroup = new THREE.Group();
+    furnaceGroup.position.set(1.0, 0.0, -1.2);
+
+    const baseGeo = new THREE.BoxGeometry(0.6, 0.4, 0.6);
+    const brickMat = new THREE.MeshPhongMaterial({ color: 0x7c4f4b, shininess: 5 });
+    const base = new THREE.Mesh(baseGeo, brickMat);
+    base.position.y = 0.2;
+    base.receiveShadow = true;
+    base.castShadow = true;
+    furnaceGroup.add(base);
+
+    const coalsGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.05, 8);
+    const coalsMat = new THREE.MeshBasicMaterial({ color: 0xff5500 });
+    const coals = new THREE.Mesh(coalsGeo, coalsMat);
+    coals.position.y = 0.4;
+    furnaceGroup.add(coals);
+
+    this.forgeScene.add(furnaceGroup);
+
+    // Particle Emitter (Sparks)
+    this.forgeSparksGroup = new THREE.Group();
+    this.forgeScene.add(this.forgeSparksGroup);
+
+    const sparkGeo = new THREE.BoxGeometry(0.015, 0.015, 0.015);
+    const sparkMat = new THREE.MeshBasicMaterial({ color: 0xff8800, transparent: true });
+
+    const resetSpark = (spark: THREE.Mesh) => {
+      spark.position.set(1.0 + (Math.random() - 0.5) * 0.2, 0.42, -1.2 + (Math.random() - 0.5) * 0.2);
+      spark.userData = {
+        vx: (Math.random() - 0.65) * 0.15,
+        vy: 0.35 + Math.random() * 0.4,
+        vz: (Math.random() - 0.5) * 0.15,
+        age: 0,
+        life: 0.8 + Math.random() * 1.2
+      };
+      (spark.material as THREE.MeshBasicMaterial).opacity = 1.0;
+    };
+
+    for (let i = 0; i < 30; i++) {
+      const spark = new THREE.Mesh(sparkGeo, sparkMat.clone());
+      resetSpark(spark);
+      spark.position.y = 0.42 + Math.random() * 0.8;
+      this.forgeSparksGroup.add(spark);
+      this.forgeSparks.push(spark);
+    }
+
+    // Forge Cards Group
+    this.forgeCardsGroup = new THREE.Group();
+    this.forgeScene.add(this.forgeCardsGroup);
+  }
+
+  private updateForgeSparks(sec: number) {
+    const dt = 0.016;
+    this.forgeSparks.forEach(spark => {
+      const ud = spark.userData;
+      ud.age += dt;
+      if (ud.age >= ud.life) {
+        spark.position.set(1.0 + (Math.random() - 0.5) * 0.2, 0.42, -1.2 + (Math.random() - 0.5) * 0.2);
+        ud.age = 0;
+        ud.life = 0.8 + Math.random() * 1.2;
+        ud.vx = (Math.random() - 0.65) * 0.15;
+        ud.vy = 0.35 + Math.random() * 0.4;
+        ud.vz = (Math.random() - 0.5) * 0.15;
+        (spark.material as THREE.MeshBasicMaterial).opacity = 1.0;
+      } else {
+        spark.position.x += ud.vx * dt;
+        spark.position.y += ud.vy * dt;
+        spark.position.z += ud.vz * dt;
+        const progress = ud.age / ud.life;
+        (spark.material as THREE.MeshBasicMaterial).opacity = 1.0 - progress;
+      }
+    });
+  }
+
+  public syncForgeCards() {
+    const forgeCards = this.engine.runState.forgeCards || [];
+    const activeIds = forgeCards.map(c => c.id);
+    
+    this.forgeCardsVisuals = this.forgeCardsVisuals.filter(fcv => {
+      const exists = activeIds.includes(fcv.cardId);
+      if (!exists) {
+        this.forgeCardsGroup.remove(fcv.mesh);
+      }
+      return exists;
+    });
+
+    forgeCards.forEach((card, idx) => {
+      let fcv = this.forgeCardsVisuals.find(v => v.cardId === card.id);
+      if (!fcv) {
+        fcv = new ForgeCardVisual(card);
+        this.forgeCardsGroup.add(fcv.mesh);
+        this.forgeCardsVisuals.push(fcv);
+      }
+      
+      if (fcv.purchased !== card.purchased) {
+        this.forgeCardsGroup.remove(fcv.mesh);
+        this.forgeCardsVisuals = this.forgeCardsVisuals.filter(v => v.cardId !== card.id);
+        
+        fcv = new ForgeCardVisual(card);
+        this.forgeCardsGroup.add(fcv.mesh);
+        this.forgeCardsVisuals.push(fcv);
+      }
+
+      const tx = (idx - 1) * 0.48;
+      const ty = 0.52;
+      const tz = 0.15;
+      
+      const isHovered = (this.hoveredForgeCardId === card.id);
+      
+      fcv.targetPosition.set(
+        tx,
+        ty + (isHovered ? 0.08 : 0) + Math.sin(Date.now() * 0.003 + idx) * 0.015,
+        tz + (isHovered ? -0.06 : 0)
+      );
+      
+      // Fan layout: left card rotates right, center straight, right rotates left
+      const cardAngleY = (1 - idx) * 0.22;
+      
+      fcv.targetRotation.set(
+        -0.42, // Tilt back to face the camera directly
+        cardAngleY + (isHovered ? Math.sin(Date.now() * 0.005) * 0.08 : 0),
+        0
+      );
+    });
+  }
+
+  private performForgeRaycasting() {
+    if (this.mouse.x === -999) {
+      this.hoveredForgeCardId = null;
+    } else {
+      this.raycaster.setFromCamera(this.mouse, this.camera);
+      const meshes = this.forgeCardsVisuals.map(cv => cv.mesh);
+      const intersects = this.raycaster.intersectObjects(meshes);
+      if (intersects.length > 0) {
+        const hitObj = intersects[0].object;
+        this.hoveredForgeCardId = hitObj.userData.forgeCardId;
+      } else {
+        this.hoveredForgeCardId = null;
+      }
+    }
+    
+    if (this.hoveredForgeCardId !== this.lastHoveredForgeCardId) {
+      this.lastHoveredForgeCardId = this.hoveredForgeCardId;
+      if (this.onForgeCardHover) {
+        this.onForgeCardHover(this.hoveredForgeCardId);
+      }
+    }
+  }
+
   private createFeltTexture(isEnemy: boolean): THREE.Texture {
     const canvas = document.createElement('canvas');
     canvas.width = 1024;
@@ -570,6 +857,10 @@ export class RenderManager {
         let colorStr = '#2ebd42';
         if (cellColor === 'red') colorStr = '#ef5350';
         else if (cellColor === 'black') colorStr = '#2d2d2d';
+        else if (cellColor === 'gold') colorStr = '#ffd700';
+        else if (cellColor === 'purple') colorStr = '#9c27b0';
+        else if (cellColor === 'cyan') colorStr = '#00bcd4';
+        else if (cellColor === 'crimson') colorStr = '#ff007f';
 
         const x = 160 + col * colWidth;
         const y = 40 + row * rowHeight;
@@ -596,9 +887,9 @@ export class RenderManager {
       }
     }
 
-    // 4. Draw Outside bets below grid
-    const outHeight = 110;
-    const outY = 360;
+    // 4. Draw Outside bets below grid (Row 1: Red, Black, Odd, Even, Green)
+    const outHeight = 65;
+    const outY = 350;
 
     // Payout details
     const payouts = activeWheel.payoutMultipliers;
@@ -608,50 +899,93 @@ export class RenderManager {
     ctx.fillRect(160, outY, 156, outHeight);
     ctx.strokeRect(160, outY, 156, outHeight);
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 30px "Courier Prime", monospace';
-    ctx.fillText('RED', 238, outY + 35);
     ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.red}x)`, 238, outY + 75);
+    ctx.fillText('RED', 238, outY + 20);
+    ctx.font = 'bold 14px "Courier Prime", monospace';
+    ctx.fillText(`(${payouts.red}x)`, 238, outY + 45);
 
     // BLACK outside bet
-    ctx.font = 'bold 30px "Courier Prime", monospace';
     ctx.fillStyle = '#2d2d2d';
     ctx.fillRect(324, outY, 156, outHeight);
     ctx.strokeRect(324, outY, 156, outHeight);
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('BLACK', 402, outY + 35);
     ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.black}x)`, 402, outY + 75);
+    ctx.fillText('BLACK', 402, outY + 20);
+    ctx.font = 'bold 14px "Courier Prime", monospace';
+    ctx.fillText(`(${payouts.black}x)`, 402, outY + 45);
 
     // ODD outside bet
-    ctx.font = 'bold 30px "Courier Prime", monospace';
     ctx.fillStyle = '#d84315';
     ctx.fillRect(488, outY, 156, outHeight);
     ctx.strokeRect(488, outY, 156, outHeight);
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('ODD', 566, outY + 35);
     ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.odd}x)`, 566, outY + 75);
+    ctx.fillText('ODD', 566, outY + 20);
+    ctx.font = 'bold 14px "Courier Prime", monospace';
+    ctx.fillText(`(${payouts.odd}x)`, 566, outY + 45);
 
     // EVEN outside bet
-    ctx.font = 'bold 30px "Courier Prime", monospace';
     ctx.fillStyle = '#0288d1';
     ctx.fillRect(652, outY, 156, outHeight);
     ctx.strokeRect(652, outY, 156, outHeight);
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('EVEN', 730, outY + 35);
     ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.even}x)`, 730, outY + 75);
+    ctx.fillText('EVEN', 730, outY + 20);
+    ctx.font = 'bold 14px "Courier Prime", monospace';
+    ctx.fillText(`(${payouts.even}x)`, 730, outY + 45);
 
     // GREEN outside bet
-    ctx.font = 'bold 30px "Courier Prime", monospace';
     ctx.fillStyle = '#4caf50';
     ctx.fillRect(816, outY, 164, outHeight);
     ctx.strokeRect(816, outY, 164, outHeight);
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('GREEN', 898, outY + 35);
     ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.green}x)`, 898, outY + 75);
+    ctx.fillText('GREEN', 898, outY + 20);
+    ctx.font = 'bold 14px "Courier Prime", monospace';
+    ctx.fillText(`(${payouts.green}x)`, 898, outY + 45);
+
+    // Row 2 of outside bets (Gold, Purple, Cyan, Crimson)
+    const outY2 = 425;
+
+    // GOLD outside bet
+    ctx.fillStyle = '#ffd700';
+    ctx.fillRect(160, outY2, 195, outHeight);
+    ctx.strokeRect(160, outY2, 195, outHeight);
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 20px "Courier Prime", monospace';
+    ctx.fillText('GOLD', 257, outY2 + 20);
+    ctx.font = 'bold 14px "Courier Prime", monospace';
+    ctx.fillText(`(${payouts.gold}x)`, 257, outY2 + 45);
+
+    // PURPLE outside bet
+    ctx.fillStyle = '#9c27b0';
+    ctx.fillRect(365, outY2, 195, outHeight);
+    ctx.strokeRect(365, outY2, 195, outHeight);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 20px "Courier Prime", monospace';
+    ctx.fillText('PURPLE', 462, outY2 + 20);
+    ctx.font = 'bold 14px "Courier Prime", monospace';
+    ctx.fillText(`(${payouts.purple}x)`, 462, outY2 + 45);
+
+    // CYAN outside bet
+    ctx.fillStyle = '#00bcd4';
+    ctx.fillRect(570, outY2, 195, outHeight);
+    ctx.strokeRect(570, outY2, 195, outHeight);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 20px "Courier Prime", monospace';
+    ctx.fillText('CYAN', 667, outY2 + 20);
+    ctx.font = 'bold 14px "Courier Prime", monospace';
+    ctx.fillText(`(${payouts.cyan}x)`, 667, outY2 + 45);
+
+    // CRIMSON outside bet
+    ctx.fillStyle = '#ff007f';
+    ctx.fillRect(775, outY2, 205, outHeight);
+    ctx.strokeRect(775, outY2, 205, outHeight);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 20px "Courier Prime", monospace';
+    ctx.fillText('CRIMSON', 877, outY2 + 20);
+    ctx.font = 'bold 14px "Courier Prime", monospace';
+    ctx.fillText(`(${payouts.crimson}x)`, 877, outY2 + 45);
 
     // Add grime / grunge overlay (opacity reduced to 0.12 for better clarity)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
@@ -902,8 +1236,8 @@ export class RenderManager {
     // Get player's active wheel
     const activeWheel = this.engine.battleState ? this.engine.battleState.playerWheel : this.engine.runState.playerWheel;
 
-    // Check outside bets row: cy >= 360 && cy <= 470
-    if (cy >= 360 && cy <= 470) {
+    // Check outside bets Row 1: cy >= 350 && cy <= 415
+    if (cy >= 350 && cy <= 415) {
       if (cx >= 160 && cx <= 316) {
         return { type: 'red' };
       } else if (cx >= 324 && cx <= 480) {
@@ -914,6 +1248,19 @@ export class RenderManager {
         return { type: 'even' };
       } else if (cx >= 816 && cx <= 980) {
         return { type: 'green' };
+      }
+    }
+
+    // Check outside bets Row 2: cy >= 425 && cy <= 490
+    if (cy >= 425 && cy <= 490) {
+      if (cx >= 160 && cx <= 355) {
+        return { type: 'gold' };
+      } else if (cx >= 365 && cx <= 560) {
+        return { type: 'purple' };
+      } else if (cx >= 570 && cx <= 765) {
+        return { type: 'cyan' };
+      } else if (cx >= 775 && cx <= 980) {
+        return { type: 'crimson' };
       }
     }
 
@@ -996,18 +1343,30 @@ export class RenderManager {
     };
 
     this.container.addEventListener('pointerdown', (e) => {
-      if (!this.engine.battleState || this.engine.battleState.phase !== 'betting') {
+      const isForge = this.engine.runState.gameState === 'FORGE';
+      if (!isForge && (!this.engine.battleState || this.engine.battleState.phase !== 'betting')) {
         return; // Lock all inputs!
       }
       startX = e.clientX;
       startY = e.clientY;
-
 
       const coords = getMouseCoords(e);
       this.mouse.copy(coords);
 
       this.raycaster.setFromCamera(this.mouse, this.camera);
       
+      if (isForge) {
+        const meshes = this.forgeCardsVisuals.map(cv => cv.mesh);
+        const intersects = this.raycaster.intersectObjects(meshes);
+        if (intersects.length > 0) {
+          const hitObj = intersects[0].object;
+          pressedCardId = hitObj.userData.forgeCardId;
+        } else {
+          pressedCardId = null;
+        }
+        return;
+      }
+
       // 1. Check card hits (only interactive in Cards view)
       if (this.activeView === 1) {
         const hitCardId = this.raycastCardsAtRest();
@@ -1067,6 +1426,9 @@ export class RenderManager {
       const coords = getMouseCoords(e);
       this.mouse.copy(coords);
 
+      const isForge = this.engine.runState.gameState === 'FORGE';
+      if (isForge) return;
+
       const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
 
       if (pressedSourceDenom > 0 && dist > 5 && !this.isDragging) {
@@ -1104,10 +1466,21 @@ export class RenderManager {
 
     this.container.addEventListener('pointerup', (e) => {
       const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+      const isForge = this.engine.runState.gameState === 'FORGE';
+
+      if (isForge) {
+        if (pressedCardId && dist <= 5) {
+          if (this.onForgeCardClicked) {
+            this.onForgeCardClicked(pressedCardId);
+          }
+        }
+        pressedCardId = null;
+        return;
+      }
 
       if (this.isDragging) {
         if (this.activeHoveredCell && this.engine.battleState) {
-          const type = this.activeHoveredCell.type as 'red' | 'black' | 'green' | 'number' | 'odd' | 'even';
+          const type = this.activeHoveredCell.type as 'red' | 'black' | 'green' | 'number' | 'odd' | 'even' | 'gold' | 'purple' | 'cyan' | 'crimson';
           const numberValue = this.activeHoveredCell.numberValue;
           const actualAmount = Math.min(this.dragDenom, this.engine.battleState.chipsPool);
           if (actualAmount > 0) {
@@ -1340,6 +1713,10 @@ export class RenderManager {
     else if (betType === 'green') chipMat = this.chipMaterials.green;
     else if (betType === 'number') chipMat = this.chipMaterials.number;
     else if (betType === 'even') chipMat = this.chipMaterials.blue;
+    else if (betType === 'gold') chipMat = this.chipMaterials.gold;
+    else if (betType === 'purple') chipMat = this.chipMaterials.purple;
+    else if (betType === 'cyan') chipMat = this.chipMaterials.cyan;
+    else if (betType === 'crimson') chipMat = this.chipMaterials.crimson;
 
     const count = Math.max(1, Math.min(5, intent.value));
     for (let i = 0; i < count; i++) {
@@ -1557,6 +1934,7 @@ export class RenderManager {
     requestAnimationFrame(this.animate);
     this.updateFpsStats(time);
     const sec = time * 0.001;
+    const isForge = this.engine.runState.gameState === 'FORGE';
 
     // Animate hanging light bulb sway
     if (this.bulbGroup) {
@@ -1665,6 +2043,38 @@ export class RenderManager {
         activePhysics.update(fixedStep);
         this.physicsAccumulator -= fixedStep;
         
+        if (activePhysics.justHitPin) {
+          activePhysics.justHitPin = false;
+          const relSpeed = Math.abs(activePhysics.ballOmega - activePhysics.wheelOmega);
+          this.sound.playPegBounce(0.8 + relSpeed * 0.15);
+          if (this.onBounce) {
+            this.onBounce('pin', relSpeed);
+          }
+        }
+        if (activePhysics.justHitDivider) {
+          activePhysics.justHitDivider = false;
+          const relSpeed = Math.abs(activePhysics.ballOmega - activePhysics.wheelOmega);
+          
+          const mods = this.engine.battleState?.physicsModifiers;
+          let specialType = '';
+          if (mods) {
+            if (mods.targetZoneBias > 0) specialType = 'magnetic';
+            else if (mods.nudgeCheatActive) specialType = 'nudge';
+            else if (mods.friction !== 1.0) specialType = 'friction';
+            else if (mods.wheelTilt > 0) specialType = 'tilt';
+            else if (mods.ballMass !== 1.0) specialType = 'mass';
+          }
+          if (specialType) {
+            this.sound.playSpecialPhysicsClick(specialType, 0.6 + relSpeed * 0.1);
+          } else {
+            this.sound.playRouletteClick(0.6 + relSpeed * 0.1);
+          }
+          
+          if (this.onBounce) {
+            this.onBounce('divider', relSpeed);
+          }
+        }
+        
         if (activePhysics.isSettled) {
           this.physicsAccumulator = 0;
           if (this.onSpinSettled) {
@@ -1679,17 +2089,33 @@ export class RenderManager {
     this.lastPhysicsTime = sec;
 
     // Physics sync: update player and enemy wheels
+    const battle = this.engine.battleState;
+    const playerWheelConfig = battle ? battle.playerWheel : this.engine.runState.playerWheel;
+    const enemyWheelConfig = battle ? battle.enemyWheel : this.engine.runState.playerWheel;
+    const playerPhysics = this.engine.playerPhysics;
+    const enemyPhysics = this.engine.enemyPhysics;
+    const playerMods = battle ? battle.physicsModifiers : undefined;
+    const enemyMods = battle ? battle.physicsModifiers : undefined;
+
     this.wheelVis.update(
-      this.engine.playerPhysics.wheelAngle,
-      this.engine.playerPhysics.ballAngle,
-      this.engine.playerPhysics.ballRadius,
-      this.engine.playerPhysics.ballHeight
+      playerPhysics.wheelAngle,
+      playerPhysics.ballAngle,
+      playerPhysics.ballRadius,
+      playerPhysics.ballHeight,
+      playerPhysics.isSettled,
+      playerPhysics.settledSlotIndex,
+      playerWheelConfig,
+      playerMods
     );
     this.enemyWheelVis.update(
-      this.engine.enemyPhysics.wheelAngle,
-      this.engine.enemyPhysics.ballAngle,
-      this.engine.enemyPhysics.ballRadius,
-      this.engine.enemyPhysics.ballHeight
+      enemyPhysics.wheelAngle,
+      enemyPhysics.ballAngle,
+      enemyPhysics.ballRadius,
+      enemyPhysics.ballHeight,
+      enemyPhysics.isSettled,
+      enemyPhysics.settledSlotIndex,
+      enemyWheelConfig,
+      enemyMods
     );
 
     // Animate bell plunger shake
@@ -1741,9 +2167,10 @@ export class RenderManager {
       let currentActiveView = this.manualView;
       const resOverlay = document.getElementById('resolution-overlay');
       const isSpinOverlayVisible = resOverlay && !resOverlay.classList.contains('hidden');
-      if (this.engine.battleState.phase === 'spinning' || isSpinOverlayVisible) {
+      const isResolving = this.engine.battleState?.isResolving;
+      if (this.engine.battleState.phase === 'spinning' || isSpinOverlayVisible || isResolving) {
         const isEnemy = this.engine.battleState?.activeWheelOwner === 'enemy';
-        currentActiveView = isEnemy ? 6 : 3; // Force Player Wheel (3) or Enemy Wheel (6) during active spin
+        currentActiveView = isEnemy ? 6 : 3; // Force Player Wheel (3) or Enemy Wheel (6) during active spin/resolution
       }
       this.activeView = currentActiveView;
 
@@ -1763,13 +2190,56 @@ export class RenderManager {
         this.cameraTargetPos.set(-0.4, 1.25, -1.15);
         this.cameraTargetLookAt.set(0.0, 0.1, -1.95);
       } else if (this.activeView === 7) { // Opponent Himself (direct face-to-face view of opponent mask and eyes)
-        this.cameraTargetPos.set(0.0, 1.6, -1.35);
-        this.cameraTargetLookAt.set(0.0, 1.6, -3.0);
+        this.cameraTargetPos.set(0.0, 1.25, -1.35);
+        this.cameraTargetLookAt.set(0.0, 1.25, -3.0);
       } else { // Overview (4)
         this.cameraTargetPos.set(0, 1.9, 1.5);
         this.cameraTargetLookAt.set(0, 0.1, -0.2);
       }
+    } else if (isForge) {
+      // Forge state camera view
+      this.activeView = 8;
+      this.cameraTargetPos.set(0.0, 1.25, 0.95);
+      this.cameraTargetLookAt.set(-0.25, 0.45, -0.5);
+
+      // Transition wheel to forge scene if not already done
+      if (this.wheelVis.group.parent !== this.forgeScene) {
+        this.forgeScene.add(this.wheelVis.group);
+        this.wheelVis.group.position.set(-0.9, 0.55, -0.5);
+        this.wheelVis.group.scale.set(0.45, 0.45, 0.45);
+        
+        // sync initial forge card offers
+        this.syncForgeCards();
+      }
+
+      // Rotate wheel visual slowly on pedestal
+      this.wheelVis.group.rotation.y += 0.005;
+
+      // Pulse furnace coals light (lower intensity)
+      if (this.forgeFurnaceLight) {
+        this.forgeFurnaceLight.intensity = 2.5 + Math.sin(sec * 5.0) * 0.8;
+      }
+
+      // Update sparks particles
+      this.updateForgeSparks(sec);
+
+      // Raycast and sync forge cards
+      this.performForgeRaycasting();
+      this.syncForgeCards();
+      this.forgeCardsVisuals.forEach(fcv => fcv.update(0.12));
     } else {
+      // Transition wheel back to normal scene if it was in forge
+      if (this.wheelVis.group.parent === this.forgeScene) {
+        this.scene.add(this.wheelVis.group);
+        this.wheelVis.group.position.set(-0.8, 0.05, -0.75);
+        this.wheelVis.group.rotation.set(0, 0, 0);
+        this.wheelVis.group.scale.set(0.55, 0.55, 0.55);
+
+        // Remove forge card visual meshes
+        this.forgeCardsVisuals.forEach(cv => this.forgeCardsGroup.remove(cv.mesh));
+        this.forgeCardsVisuals = [];
+      }
+
       // Resting map or event state: slowly pan camera
       this.activeView = 4;
       this.cameraTargetPos.set(Math.sin(sec * 0.15) * 0.5, 1.5, 1.4);
@@ -1854,13 +2324,19 @@ export class RenderManager {
     this.cardVisuals.forEach(cv => cv.update(0.12));
     this.playedCardVisuals.forEach(cv => cv.update(0.12));
 
-    // Render 3D Scene into low-poly RenderTarget
-    this.renderer.setRenderTarget(this.renderTarget);
-    this.renderer.render(this.scene, this.camera);
-    
-    // Render Fullscreen Quad to screen using pixel/dither shader
-    this.renderer.setRenderTarget(null);
-    this.renderer.render(this.postScene, this.postCamera);
+    if (isForge) {
+      // Render Forge scene directly to screen in high-resolution (bypasses low-poly PS1 pixel/dither shader for perfect card legibility)
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.forgeScene, this.camera);
+    } else {
+      // Render 3D Scene into low-poly RenderTarget
+      this.renderer.setRenderTarget(this.renderTarget);
+      this.renderer.render(this.scene, this.camera);
+      
+      // Render Fullscreen Quad to screen using pixel/dither shader
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.postScene, this.postCamera);
+    }
 
     // Render Hand Cards in a second pass directly to the screen (high-res overlay)
     if (this.engine.battleState) {
@@ -1894,6 +2370,10 @@ export class RenderManager {
       else if (bet.type === 'green') mat = this.chipMaterials.green;
       else if (bet.type === 'odd') mat = this.chipMaterials.red;
       else if (bet.type === 'even') mat = this.chipMaterials.blue;
+      else if (bet.type === 'gold') mat = this.chipMaterials.gold;
+      else if (bet.type === 'purple') mat = this.chipMaterials.purple;
+      else if (bet.type === 'cyan') mat = this.chipMaterials.cyan;
+      else if (bet.type === 'crimson') mat = this.chipMaterials.crimson;
 
       for (let j = 0; j < stackHeight; j++) {
         const chip = new THREE.Mesh(chipGeo, mat);
@@ -1961,19 +2441,31 @@ export class RenderManager {
 
     if (betType === 'red') {
       cx = 238;
-      cy = 415;
+      cy = 382;
     } else if (betType === 'black') {
       cx = 402;
-      cy = 415;
+      cy = 382;
     } else if (betType === 'odd') {
       cx = 566;
-      cy = 415;
+      cy = 382;
     } else if (betType === 'even') {
       cx = 730;
-      cy = 415;
+      cy = 382;
     } else if (betType === 'green') {
       cx = 898;
-      cy = 415;
+      cy = 382;
+    } else if (betType === 'gold') {
+      cx = 257;
+      cy = 457;
+    } else if (betType === 'purple') {
+      cx = 462;
+      cy = 457;
+    } else if (betType === 'cyan') {
+      cx = 667;
+      cy = 457;
+    } else if (betType === 'crimson') {
+      cx = 877;
+      cy = 457;
     } else if (betType === 'number' && numVal !== undefined) {
       if (activeWheel.greenNumbers.includes(numVal)) {
         cx = 100;
