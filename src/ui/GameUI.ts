@@ -2345,37 +2345,73 @@ export class GameUI {
       });
     }
 
-    // Update category button labels with dynamic payouts
+    // Update category button labels with dynamic payouts and hide if not on wheel
     if (battle.playerWheel) {
       const activeWheel = battle.playerWheel;
+      const boardModifiers = battle.boardModifiers;
       const payouts = activeWheel.payoutMultipliers;
       
-      const btnRed = this.root.querySelector('.bet-red') as HTMLElement;
-      if (btnRed) btnRed.innerHTML = `RED (${payouts.red}x)`;
-      
-      const btnBlack = this.root.querySelector('.bet-black') as HTMLElement;
-      if (btnBlack) btnBlack.innerHTML = `BLACK (${payouts.black}x)`;
-      
-      const btnGreen = this.root.querySelector('.bet-green') as HTMLElement;
-      if (btnGreen) btnGreen.innerHTML = `GREEN (${payouts.green}x)`;
-      
-      const btnOdd = this.root.querySelector('.bet-odd') as HTMLElement;
-      if (btnOdd) btnOdd.innerHTML = `ODD (${payouts.odd}x)`;
-      
-      const btnEven = this.root.querySelector('.bet-even') as HTMLElement;
-      if (btnEven) btnEven.innerHTML = `EVEN (${payouts.even}x)`;
+      // Check presence of colors and categories
+      const colorsPresent = new Set<string>();
+      let hasOdd = false;
+      let hasEven = false;
+      let hasGreen = false;
 
-      const btnGold = this.root.querySelector('.bet-gold') as HTMLElement;
-      if (btnGold) btnGold.innerHTML = `GOLD (${payouts.gold || 4}x)`;
+      for (const num of activeWheel.numbers) {
+        const isGreenNum = activeWheel.greenNumbers.includes(num);
+        if (isGreenNum) {
+          hasGreen = true;
+        } else {
+          const slotColor = getSlotColor(num, activeWheel, boardModifiers);
+          if (slotColor) {
+            colorsPresent.add(slotColor);
+          }
+          if (num % 2 !== 0) {
+            hasOdd = true;
+          } else {
+            hasEven = true;
+          }
+        }
+      }
 
-      const btnPurple = this.root.querySelector('.bet-purple') as HTMLElement;
-      if (btnPurple) btnPurple.innerHTML = `PURPLE (${payouts.purple || 4}x)`;
+      const updateAndShowBtn = (btnClass: string, isPresent: boolean, htmlContent: string) => {
+        const btn = this.root.querySelector(btnClass) as HTMLElement;
+        if (btn) {
+          btn.innerHTML = htmlContent;
+          if (isPresent) {
+            btn.classList.remove('hidden');
+          } else {
+            btn.classList.add('hidden');
+          }
+        }
+      };
 
-      const btnCyan = this.root.querySelector('.bet-cyan') as HTMLElement;
-      if (btnCyan) btnCyan.innerHTML = `CYAN (${payouts.cyan || 4}x)`;
+      updateAndShowBtn('.bet-red', colorsPresent.has('red'), `RED (${payouts.red}x)`);
+      updateAndShowBtn('.bet-black', colorsPresent.has('black'), `BLACK (${payouts.black}x)`);
+      updateAndShowBtn('.bet-green', hasGreen, `GREEN (${payouts.green}x)`);
+      updateAndShowBtn('.bet-odd', hasOdd, `ODD (${payouts.odd}x)`);
+      updateAndShowBtn('.bet-even', hasEven, `EVEN (${payouts.even}x)`);
+      updateAndShowBtn('.bet-gold', colorsPresent.has('gold'), `GOLD (${payouts.gold || 4}x)`);
+      updateAndShowBtn('.bet-purple', colorsPresent.has('purple'), `PURPLE (${payouts.purple || 4}x)`);
+      updateAndShowBtn('.bet-cyan', colorsPresent.has('cyan'), `CYAN (${payouts.cyan || 4}x)`);
+      updateAndShowBtn('.bet-crimson', colorsPresent.has('crimson'), `CRIMSON (${payouts.crimson || 6}x)`);
 
-      const btnCrimson = this.root.querySelector('.bet-crimson') as HTMLElement;
-      if (btnCrimson) btnCrimson.innerHTML = `CRIMSON (${payouts.crimson || 6}x)`;
+      // If a row has all buttons hidden, hide the row itself
+      const rows = this.root.querySelectorAll('.bet-type-row') as NodeListOf<HTMLElement>;
+      rows.forEach(row => {
+        const btns = row.querySelectorAll('.bet-btn') as NodeListOf<HTMLElement>;
+        let visibleCount = 0;
+        btns.forEach(btn => {
+          if (!btn.classList.contains('hidden')) {
+            visibleCount++;
+          }
+        });
+        if (visibleCount === 0) {
+          row.classList.add('hidden');
+        } else {
+          row.classList.remove('hidden');
+        }
+      });
     }
 
     // Placed Bets list update

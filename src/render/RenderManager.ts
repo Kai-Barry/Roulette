@@ -81,6 +81,8 @@ export class RenderManager {
   private lastHoveredForgeCardId: string | null = null;
   onForgeCardHover?: (cardId: string | null) => void;
   onForgeCardClicked?: (cardId: string) => void;
+  private playerOutsideBets: Array<{ type: string; xStart: number; width: number; yStart: number; height: number }> = [];
+  private enemyOutsideBets: Array<{ type: string; xStart: number; width: number; yStart: number; height: number }> = [];
   
   // Raycasting
   raycaster = new THREE.Raycaster();
@@ -804,6 +806,48 @@ export class RenderManager {
     }
   }
 
+  private getActiveOutsideBets(wheel: WheelConfig, isEnemy: boolean): { row1: string[], row2: string[] } {
+    const battle = this.engine.battleState;
+    const boardModifiers = battle ? battle.boardModifiers : undefined;
+    
+    const colorsPresent = new Set<string>();
+    let hasOdd = false;
+    let hasEven = false;
+    let hasGreen = false;
+
+    for (const num of wheel.numbers) {
+      const isGreenNum = wheel.greenNumbers.includes(num);
+      if (isGreenNum) {
+        hasGreen = true;
+      } else {
+        const slotColor = getSlotColor(num, wheel, boardModifiers);
+        if (slotColor) {
+          colorsPresent.add(slotColor);
+        }
+        if (num % 2 !== 0) {
+          hasOdd = true;
+        } else {
+          hasEven = true;
+        }
+      }
+    }
+
+    const row1: string[] = [];
+    if (colorsPresent.has('red')) row1.push('red');
+    if (colorsPresent.has('black')) row1.push('black');
+    if (hasOdd) row1.push('odd');
+    if (hasEven) row1.push('even');
+    if (hasGreen) row1.push('green');
+
+    const row2: string[] = [];
+    if (colorsPresent.has('gold')) row2.push('gold');
+    if (colorsPresent.has('purple')) row2.push('purple');
+    if (colorsPresent.has('cyan')) row2.push('cyan');
+    if (colorsPresent.has('crimson')) row2.push('crimson');
+
+    return { row1, row2 };
+  }
+
   private createFeltTexture(isEnemy: boolean): THREE.Texture {
     const canvas = document.createElement('canvas');
     canvas.width = 1024;
@@ -887,105 +931,148 @@ export class RenderManager {
       }
     }
 
+    // Clear and compute layout arrays
+    if (isEnemy) {
+      this.enemyOutsideBets = [];
+    } else {
+      this.playerOutsideBets = [];
+    }
+
+    const activeLayout = this.getActiveOutsideBets(activeWheel, isEnemy);
+
     // 4. Draw Outside bets below grid (Row 1: Red, Black, Odd, Even, Green)
     const outHeight = 65;
     const outY = 350;
-
-    // Payout details
     const payouts = activeWheel.payoutMultipliers;
 
-    // RED outside bet
-    ctx.fillStyle = '#ef5350';
-    ctx.fillRect(160, outY, 156, outHeight);
-    ctx.strokeRect(160, outY, 156, outHeight);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText('RED', 238, outY + 20);
-    ctx.font = 'bold 14px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.red}x)`, 238, outY + 45);
+    const row1Active = activeLayout.row1;
+    const gap1 = 8;
+    const totalGaps1 = (row1Active.length - 1) * gap1;
+    const widthPerItem1 = row1Active.length > 0 ? Math.floor((820 - totalGaps1) / row1Active.length) : 0;
 
-    // BLACK outside bet
-    ctx.fillStyle = '#2d2d2d';
-    ctx.fillRect(324, outY, 156, outHeight);
-    ctx.strokeRect(324, outY, 156, outHeight);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText('BLACK', 402, outY + 20);
-    ctx.font = 'bold 14px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.black}x)`, 402, outY + 45);
+    for (let i = 0; i < row1Active.length; i++) {
+      const type = row1Active[i];
+      const xStart = 160 + i * (widthPerItem1 + gap1);
+      const width = (i === row1Active.length - 1) ? (980 - xStart) : widthPerItem1;
+      
+      const layoutItem = {
+        type,
+        xStart,
+        width,
+        yStart: outY,
+        height: outHeight
+      };
+      if (isEnemy) {
+        this.enemyOutsideBets.push(layoutItem);
+      } else {
+        this.playerOutsideBets.push(layoutItem);
+      }
 
-    // ODD outside bet
-    ctx.fillStyle = '#d84315';
-    ctx.fillRect(488, outY, 156, outHeight);
-    ctx.strokeRect(488, outY, 156, outHeight);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText('ODD', 566, outY + 20);
-    ctx.font = 'bold 14px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.odd}x)`, 566, outY + 45);
+      let fillStyle = '#ef5350';
+      let textColor = '#ffffff';
+      let displayName = '';
+      let payoutVal = 1;
 
-    // EVEN outside bet
-    ctx.fillStyle = '#0288d1';
-    ctx.fillRect(652, outY, 156, outHeight);
-    ctx.strokeRect(652, outY, 156, outHeight);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText('EVEN', 730, outY + 20);
-    ctx.font = 'bold 14px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.even}x)`, 730, outY + 45);
+      if (type === 'red') {
+        fillStyle = '#ef5350';
+        displayName = 'RED';
+        payoutVal = payouts.red || 2;
+      } else if (type === 'black') {
+        fillStyle = '#2d2d2d';
+        displayName = 'BLACK';
+        payoutVal = payouts.black || 2;
+      } else if (type === 'odd') {
+        fillStyle = '#d84315';
+        displayName = 'ODD';
+        payoutVal = payouts.odd || 2;
+      } else if (type === 'even') {
+        fillStyle = '#0288d1';
+        displayName = 'EVEN';
+        payoutVal = payouts.even || 2;
+      } else if (type === 'green') {
+        fillStyle = '#4caf50';
+        displayName = 'GREEN';
+        payoutVal = payouts.green || 10;
+      }
 
-    // GREEN outside bet
-    ctx.fillStyle = '#4caf50';
-    ctx.fillRect(816, outY, 164, outHeight);
-    ctx.strokeRect(816, outY, 164, outHeight);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText('GREEN', 898, outY + 20);
-    ctx.font = 'bold 14px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.green}x)`, 898, outY + 45);
+      ctx.fillStyle = fillStyle;
+      ctx.fillRect(xStart, outY, width, outHeight);
+      ctx.strokeStyle = isEnemy ? '#ba1212' : '#ffca28';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(xStart, outY, width, outHeight);
+
+      ctx.fillStyle = textColor;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 20px "Courier Prime", monospace';
+      ctx.fillText(displayName, xStart + width / 2, outY + 20);
+      ctx.font = 'bold 14px "Courier Prime", monospace';
+      ctx.fillText(`(${payoutVal}x)`, xStart + width / 2, outY + 45);
+    }
 
     // Row 2 of outside bets (Gold, Purple, Cyan, Crimson)
     const outY2 = 425;
+    const row2Active = activeLayout.row2;
+    const gap2 = 10;
+    const totalGaps2 = (row2Active.length - 1) * gap2;
+    const widthPerItem2 = row2Active.length > 0 ? Math.floor((820 - totalGaps2) / row2Active.length) : 0;
 
-    // GOLD outside bet
-    ctx.fillStyle = '#ffd700';
-    ctx.fillRect(160, outY2, 195, outHeight);
-    ctx.strokeRect(160, outY2, 195, outHeight);
-    ctx.fillStyle = '#000000';
-    ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText('GOLD', 257, outY2 + 20);
-    ctx.font = 'bold 14px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.gold}x)`, 257, outY2 + 45);
+    for (let i = 0; i < row2Active.length; i++) {
+      const type = row2Active[i];
+      const xStart = 160 + i * (widthPerItem2 + gap2);
+      const width = (i === row2Active.length - 1) ? (980 - xStart) : widthPerItem2;
 
-    // PURPLE outside bet
-    ctx.fillStyle = '#9c27b0';
-    ctx.fillRect(365, outY2, 195, outHeight);
-    ctx.strokeRect(365, outY2, 195, outHeight);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText('PURPLE', 462, outY2 + 20);
-    ctx.font = 'bold 14px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.purple}x)`, 462, outY2 + 45);
+      const layoutItem = {
+        type,
+        xStart,
+        width,
+        yStart: outY2,
+        height: outHeight
+      };
+      if (isEnemy) {
+        this.enemyOutsideBets.push(layoutItem);
+      } else {
+        this.playerOutsideBets.push(layoutItem);
+      }
 
-    // CYAN outside bet
-    ctx.fillStyle = '#00bcd4';
-    ctx.fillRect(570, outY2, 195, outHeight);
-    ctx.strokeRect(570, outY2, 195, outHeight);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText('CYAN', 667, outY2 + 20);
-    ctx.font = 'bold 14px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.cyan}x)`, 667, outY2 + 45);
+      let fillStyle = '#ffd700';
+      let textColor = '#ffffff';
+      let displayName = '';
+      let payoutVal = 1;
 
-    // CRIMSON outside bet
-    ctx.fillStyle = '#ff007f';
-    ctx.fillRect(775, outY2, 205, outHeight);
-    ctx.strokeRect(775, outY2, 205, outHeight);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText('CRIMSON', 877, outY2 + 20);
-    ctx.font = 'bold 14px "Courier Prime", monospace';
-    ctx.fillText(`(${payouts.crimson}x)`, 877, outY2 + 45);
+      if (type === 'gold') {
+        fillStyle = '#ffd700';
+        textColor = '#000000';
+        displayName = 'GOLD';
+        payoutVal = payouts.gold || 5;
+      } else if (type === 'purple') {
+        fillStyle = '#9c27b0';
+        displayName = 'PURPLE';
+        payoutVal = payouts.purple || 5;
+      } else if (type === 'cyan') {
+        fillStyle = '#00bcd4';
+        displayName = 'CYAN';
+        payoutVal = payouts.cyan || 5;
+      } else if (type === 'crimson') {
+        fillStyle = '#ff007f';
+        displayName = 'CRIMSON';
+        payoutVal = payouts.crimson || 5;
+      }
+
+      ctx.fillStyle = fillStyle;
+      ctx.fillRect(xStart, outY2, width, outHeight);
+      ctx.strokeStyle = isEnemy ? '#ba1212' : '#ffca28';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(xStart, outY2, width, outHeight);
+
+      ctx.fillStyle = textColor;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 20px "Courier Prime", monospace';
+      ctx.fillText(displayName, xStart + width / 2, outY2 + 20);
+      ctx.font = 'bold 14px "Courier Prime", monospace';
+      ctx.fillText(`(${payoutVal}x)`, xStart + width / 2, outY2 + 45);
+    }
 
     // Add grime / grunge overlay (opacity reduced to 0.12 for better clarity)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
@@ -1236,31 +1323,11 @@ export class RenderManager {
     // Get player's active wheel
     const activeWheel = this.engine.battleState ? this.engine.battleState.playerWheel : this.engine.runState.playerWheel;
 
-    // Check outside bets Row 1: cy >= 350 && cy <= 415
-    if (cy >= 350 && cy <= 415) {
-      if (cx >= 160 && cx <= 316) {
-        return { type: 'red' };
-      } else if (cx >= 324 && cx <= 480) {
-        return { type: 'black' };
-      } else if (cx >= 488 && cx <= 644) {
-        return { type: 'odd' };
-      } else if (cx >= 652 && cx <= 808) {
-        return { type: 'even' };
-      } else if (cx >= 816 && cx <= 980) {
-        return { type: 'green' };
-      }
-    }
-
-    // Check outside bets Row 2: cy >= 425 && cy <= 490
-    if (cy >= 425 && cy <= 490) {
-      if (cx >= 160 && cx <= 355) {
-        return { type: 'gold' };
-      } else if (cx >= 365 && cx <= 560) {
-        return { type: 'purple' };
-      } else if (cx >= 570 && cx <= 765) {
-        return { type: 'cyan' };
-      } else if (cx >= 775 && cx <= 980) {
-        return { type: 'crimson' };
+    // Check outside bets using the stored player layouts!
+    for (const item of this.playerOutsideBets) {
+      if (cx >= item.xStart && cx <= item.xStart + item.width &&
+          cy >= item.yStart && cy <= item.yStart + item.height) {
+        return { type: item.type };
       }
     }
 
@@ -2439,33 +2506,12 @@ export class RenderManager {
     const boardCenterZ = isEnemy ? -1.95 : 0.45;
     const boardWidth = 1.2;
 
-    if (betType === 'red') {
-      cx = 238;
-      cy = 382;
-    } else if (betType === 'black') {
-      cx = 402;
-      cy = 382;
-    } else if (betType === 'odd') {
-      cx = 566;
-      cy = 382;
-    } else if (betType === 'even') {
-      cx = 730;
-      cy = 382;
-    } else if (betType === 'green') {
-      cx = 898;
-      cy = 382;
-    } else if (betType === 'gold') {
-      cx = 257;
-      cy = 457;
-    } else if (betType === 'purple') {
-      cx = 462;
-      cy = 457;
-    } else if (betType === 'cyan') {
-      cx = 667;
-      cy = 457;
-    } else if (betType === 'crimson') {
-      cx = 877;
-      cy = 457;
+    const outsideBetsList = isEnemy ? this.enemyOutsideBets : this.playerOutsideBets;
+    const foundBet = outsideBetsList.find(item => item.type === betType);
+    
+    if (foundBet) {
+      cx = foundBet.xStart + foundBet.width / 2;
+      cy = foundBet.yStart + foundBet.height / 2;
     } else if (betType === 'number' && numVal !== undefined) {
       if (activeWheel.greenNumbers.includes(numVal)) {
         cx = 100;
