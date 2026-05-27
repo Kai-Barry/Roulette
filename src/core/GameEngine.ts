@@ -213,11 +213,12 @@ export class GameEngine {
 
     this.battleState = {
       enemy,
+      encounterType: type,
       turn: 1,
       playerScore: 0,
       enemyScore: 0,
       isSuddenDeath: false,
-      maxRounds: type === 'elite' ? 8 : type === 'boss' ? 10 : 6,
+      maxRounds: type === 'elite' ? 5 : type === 'boss' ? 8 : 3,
       chipsPool: 10, // Starting chips for combat turn 1
       hand: [],
       drawPile,
@@ -854,7 +855,7 @@ export class GameEngine {
 
     // 2. Perform winner checks based on combat mode
     if (isPointsMode) {
-      if (this.battleState.turn >= (this.battleState.maxRounds || 6)) {
+      if (this.battleState.turn >= (this.battleState.maxRounds || 3)) {
         const pScore = this.battleState.playerScore || 0;
         const eScore = this.battleState.enemyScore || 0;
         if (pScore > eScore) {
@@ -867,7 +868,7 @@ export class GameEngine {
         } else {
           // Tie! Trigger Sudden Death and extend rounds
           this.battleState.isSuddenDeath = true;
-          this.battleState.maxRounds = (this.battleState.maxRounds || 6) + 1;
+          this.battleState.maxRounds = (this.battleState.maxRounds || 3) + 1;
         }
       }
     } else {

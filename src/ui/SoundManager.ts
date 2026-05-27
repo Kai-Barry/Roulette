@@ -336,4 +336,114 @@ export class SoundManager {
     osc2.start(now);
     osc2.stop(now + 0.2);
   }
+
+  private musicInterval: any = null;
+  private currentMusicType: 'combat' | 'elite' | 'boss' | 'ambient' | null = null;
+  private currentStep = 0;
+
+  private playSynthNote(pitch: number, duration: number, type: 'sine' | 'triangle' | 'square' | 'sawtooth', volume: number, slideToPitch?: number) {
+    this.initContext();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    
+    const osc = this.ctx.createOscillator();
+    const gainNode = this.ctx.createGain();
+    
+    osc.type = type;
+    osc.frequency.setValueAtTime(pitch, now);
+    if (slideToPitch) {
+      osc.frequency.exponentialRampToValueAtTime(slideToPitch, now + duration);
+    }
+    
+    gainNode.gain.setValueAtTime(volume, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    
+    osc.connect(gainNode);
+    gainNode.connect(this.ctx.destination);
+    
+    osc.start(now);
+    osc.stop(now + duration + 0.05);
+  }
+
+  playEncounterMusic(type: 'combat' | 'elite' | 'boss' | 'ambient') {
+    this.initContext();
+    if (!this.ctx) return;
+
+    if (this.currentMusicType === type) return;
+    this.stopMusic();
+
+    this.currentMusicType = type;
+    this.currentStep = 0;
+
+    let stepDurationMs = 280;
+    if (type === 'combat') stepDurationMs = 280;
+    else if (type === 'elite') stepDurationMs = 220;
+    else if (type === 'boss') stepDurationMs = 180;
+    else stepDurationMs = 1200; // ambient
+
+    const midiToFreq = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12);
+
+    this.musicInterval = setInterval(() => {
+      if (!this.ctx) return;
+      
+      const step = this.currentStep;
+      
+      if (type === 'ambient') {
+        // Eerie ambient chimes
+        if (Math.random() < 0.4) {
+          const notes = [57, 60, 62, 64, 67, 69, 72]; // Am / Dorian pentatonic
+          const note = notes[Math.floor(Math.random() * notes.length)];
+          this.playSynthNote(midiToFreq(note + 12), 2.5, 'sine', 0.04);
+        }
+      } else if (type === 'combat') {
+        // Tense minor arpeggio
+        // Bassline on beat
+        if (step % 2 === 0) {
+          const bassNotes = [45, 45, 48, 50, 45, 45, 52, 48]; // A2, C3, D3, E3...
+          const bass = bassNotes[(step / 2) % bassNotes.length];
+          this.playSynthNote(midiToFreq(bass), 0.35, 'triangle', 0.08);
+        }
+        // Lead arpeggio
+        const leadPattern = [57, 64, 60, 69, 62, 69, 65, 67]; // A3, E4, C4, A4...
+        const note = leadPattern[step % leadPattern.length];
+        this.playSynthNote(midiToFreq(note), 0.2, 'sine', 0.03);
+      } else if (type === 'elite') {
+        // Diminished tension arpeggio
+        if (step % 2 === 0) {
+          const bassNotes = [39, 42, 45, 48]; // D#2, F#2, A2, C3
+          const bass = bassNotes[(step / 2) % bassNotes.length];
+          this.playSynthNote(midiToFreq(bass), 0.28, 'triangle', 0.1);
+        }
+        const leadPattern = [51, 57, 54, 60, 57, 63, 60, 66]; // D#3, A3, F#3, C4...
+        const note = leadPattern[step % leadPattern.length];
+        this.playSynthNote(midiToFreq(note), 0.18, 'triangle', 0.04);
+      } else if (type === 'boss') {
+        // Chromatic industrial
+        if (step % 4 === 0) {
+          const bassNotes = [40, 41, 40, 39]; // E2, F2, E2, D#2
+          const bass = bassNotes[(step / 4) % bassNotes.length];
+          this.playSynthNote(midiToFreq(bass), 0.35, 'sawtooth', 0.06);
+        }
+        // Industrial pulse lead
+        const leadPattern = [64, 65, 64, 63, 67, 66, 65, 64, 60, 61, 60, 59, 64, 63, 62, 60];
+        const note = leadPattern[step % leadPattern.length];
+        if (step % 2 === 0) {
+          this.playSynthNote(midiToFreq(note), 0.14, 'square', 0.02);
+        } else if (step % 7 === 0) {
+          // Creepy pitch slider
+          this.playSynthNote(midiToFreq(note + 12), 0.32, 'sawtooth', 0.02, midiToFreq(note));
+        }
+      }
+
+      this.currentStep = (this.currentStep + 1) % 16;
+    }, stepDurationMs);
+  }
+
+  stopMusic() {
+    if (this.musicInterval) {
+      clearInterval(this.musicInterval);
+      this.musicInterval = null;
+    }
+    this.currentMusicType = null;
+  }
 }

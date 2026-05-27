@@ -856,3 +856,46 @@ export function createStarterDeck(): Card[] {
     getCardById('magnetic_force'),
   ];
 }
+
+export function formatDescription(desc: string, isPointsMode: boolean): string {
+  let formatted = desc;
+  
+  // Replace HP with Blood (applicable to both modes for HUD consistency)
+  formatted = formatted.replace(/\bHP\b/g, 'Blood');
+  formatted = formatted.replace(/\bhp\b/g, 'blood');
+  
+  if (isPointsMode) {
+    // Enemy damage references
+    formatted = formatted.replace(/\bincoming enemy damage\b/gi, 'incoming opponent points');
+    formatted = formatted.replace(/\benemy damage\b/gi, 'opponent points');
+    formatted = formatted.replace(/\bopponent damage\b/gi, 'opponent points');
+    
+    // Damage references
+    formatted = formatted.replace(/\bflat damage\b/gi, 'flat PTS');
+    formatted = formatted.replace(/\bdealt damage\b/gi, 'scored points');
+    formatted = formatted.replace(/\bdeal damage\b/gi, 'score points');
+    formatted = formatted.replace(/\bdeals damage\b/gi, 'scores points');
+    formatted = formatted.replace(/\bdeal (\d+x|\d+\+)?\s*damage\b/gi, (match, p1) => {
+      return p1 ? `score ${p1} PTS` : 'score PTS';
+    });
+    formatted = formatted.replace(/\bdeals (\d+x|\d+\+)?\s*damage\b/gi, (match, p1) => {
+      return p1 ? `scores ${p1} PTS` : 'scores PTS';
+    });
+    formatted = formatted.replace(/\bdamage dealt\b/gi, 'points scored');
+    formatted = formatted.replace(/\bdamage taken\b/gi, 'points taken');
+    formatted = formatted.replace(/\bdamage\b/g, 'PTS');
+    formatted = formatted.replace(/\bDamage\b/g, 'PTS');
+    formatted = formatted.replace(/\bdmg\b/gi, 'PTS');
+    
+    // Verbs
+    formatted = formatted.replace(/\bdeal\b/g, 'score');
+    formatted = formatted.replace(/\bdeals\b/g, 'scores');
+    formatted = formatted.replace(/\bdealt\b/g, 'scored');
+    formatted = formatted.replace(/\bDeal\b/g, 'Score');
+    formatted = formatted.replace(/\bDeals\b/g, 'Scores');
+    formatted = formatted.replace(/\bDealt\b/g, 'Scored');
+  }
+  
+  return formatted;
+}
+

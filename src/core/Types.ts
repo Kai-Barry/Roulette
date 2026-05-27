@@ -148,6 +148,7 @@ export interface Bet {
 
 export interface BattleState {
   enemy: Enemy;
+  encounterType?: 'combat' | 'elite' | 'boss';
   turn: number;
   playerScore?: number;
   enemyScore?: number;

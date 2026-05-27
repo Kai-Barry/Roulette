@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Card, Enemy, WheelConfig, PhysicsModifiers, ForgeCard, BoardUpgrade } from '../core/Types';
 import { getSlotColor, WHEEL_NUMBERS } from '../physics/RoulettePhysics';
+import { formatDescription } from '../cards/CardDatabase';
 
 export class WheelVisual {
   group: THREE.Group;
@@ -469,7 +470,7 @@ export class CardVisual {
   targetPosition = new THREE.Vector3();
   targetRotation = new THREE.Euler();
   
-  constructor(card: Card) {
+  constructor(card: Card, isPointsMode: boolean = false) {
     // Create card textured with procedural Canvas
     const canvas = document.createElement('canvas');
     canvas.width = 256;
@@ -589,7 +590,8 @@ export class CardVisual {
     // Draw Description (Word wrapped)
     ctx.fillStyle = '#dddddd';
     ctx.font = '14px Courier New';
-    const words = card.description.split(' ');
+    const formattedDesc = formatDescription(card.description, isPointsMode);
+    const words = formattedDesc.split(' ');
     let line = '';
     let y = 245;
     
@@ -801,7 +803,7 @@ export class ForgeCardVisual {
   rarity: 'bronze' | 'silver' | 'gold';
   purchased: boolean = false;
   
-  constructor(card: ForgeCard) {
+  constructor(card: ForgeCard, isPointsMode: boolean = false) {
     this.cardId = card.id;
     this.rarity = card.rarity;
     this.purchased = card.purchased;
@@ -910,7 +912,8 @@ export class ForgeCardVisual {
     ctx.fillStyle = '#dddddd';
     ctx.font = '14px Courier New';
     ctx.textAlign = 'left';
-    const words = card.description.split(' ');
+    const formattedDesc = formatDescription(card.description, isPointsMode);
+    const words = formattedDesc.split(' ');
     let line = '';
     let y = 245;
     
@@ -988,7 +991,7 @@ export class ShopItemVisual {
   cost: number;
   purchased: boolean = false;
   
-  constructor(type: 'card' | 'upgrade' | 'heal', data: any, itemId: string, purchased: boolean) {
+  constructor(type: 'card' | 'upgrade' | 'heal', data: any, itemId: string, purchased: boolean, isPointsMode: boolean = false) {
     this.itemType = type;
     this.itemId = itemId;
     this.purchased = purchased;
@@ -1085,7 +1088,8 @@ export class ShopItemVisual {
 
     ctx.fillStyle = '#dddddd';
     ctx.font = 'bold 12px "Courier Prime", monospace';
-    const words = data.description.split(' ');
+    const formattedDesc = formatDescription(data.description || '', isPointsMode);
+    const words = formattedDesc.split(' ');
     let line = '';
     let y = 120;
     for (let n = 0; n < words.length; n++) {
@@ -1171,7 +1175,7 @@ export class EventChoiceVisual {
   targetRotation = new THREE.Euler();
   choiceId: string;
   
-  constructor(choiceId: string, title: string, costText: string, description: string) {
+  constructor(choiceId: string, title: string, costText: string, description: string, isPointsMode: boolean = false) {
     this.choiceId = choiceId;
 
     const canvas = document.createElement('canvas');
@@ -1215,7 +1219,8 @@ export class EventChoiceVisual {
 
     ctx.fillStyle = '#dddddd';
     ctx.font = 'bold 12px "Courier Prime", monospace';
-    const words = description.split(' ');
+    const formattedDesc = formatDescription(description || '', isPointsMode);
+    const words = formattedDesc.split(' ');
     let line = '';
     let y = 120;
     for (let n = 0; n < words.length; n++) {

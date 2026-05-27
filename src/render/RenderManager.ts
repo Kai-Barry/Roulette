@@ -1029,12 +1029,24 @@ export class RenderManager {
     });
 
     currentOffers.forEach((offer, idx) => {
-      let siv = this.shopItemsVisuals.find(v => v.itemId === offer.id);
-      if (!siv || siv.purchased !== offer.purchased) {
-        if (siv) this.shopCardsGroup.remove(siv.mesh);
-        siv = new ShopItemVisual(offer.type, offer.data, offer.id, offer.purchased);
+      let sivIndex = this.shopItemsVisuals.findIndex(v => v.itemId === offer.id);
+      if (sivIndex !== -1) {
+        const existingSiv = this.shopItemsVisuals[sivIndex];
+        if (existingSiv.purchased !== offer.purchased) {
+          this.shopCardsGroup.remove(existingSiv.mesh);
+          this.shopItemsVisuals.splice(sivIndex, 1);
+          sivIndex = -1; // Force creation of new visual
+        }
+      }
+
+      let siv;
+      if (sivIndex === -1) {
+        const isPointsMode = this.engine.runState.combatMode === 'points';
+        siv = new ShopItemVisual(offer.type, offer.data, offer.id, offer.purchased, isPointsMode);
         this.shopCardsGroup.add(siv.mesh);
         this.shopItemsVisuals.push(siv);
+      } else {
+        siv = this.shopItemsVisuals[sivIndex];
       }
 
       const N = currentOffers.length;
@@ -1094,7 +1106,8 @@ export class RenderManager {
     choices.forEach((choice, idx) => {
       let ecv = this.eventChoicesVisuals.find(v => v.choiceId === choice.id);
       if (!ecv) {
-        ecv = new EventChoiceVisual(choice.id, choice.title, choice.cost, choice.desc);
+        const isPointsMode = this.engine.runState.combatMode === 'points';
+        ecv = new EventChoiceVisual(choice.id, choice.title, choice.cost, choice.desc, isPointsMode);
         this.eventChoicesGroup.add(ecv.mesh);
         this.eventChoicesVisuals.push(ecv);
       }
@@ -1205,8 +1218,9 @@ export class RenderManager {
 
     forgeCards.forEach((card, idx) => {
       let fcv = this.forgeCardsVisuals.find(v => v.cardId === card.id);
+      const isPointsMode = this.engine.runState.combatMode === 'points';
       if (!fcv) {
-        fcv = new ForgeCardVisual(card);
+        fcv = new ForgeCardVisual(card, isPointsMode);
         this.forgeCardsGroup.add(fcv.mesh);
         this.forgeCardsVisuals.push(fcv);
       }
@@ -1215,7 +1229,7 @@ export class RenderManager {
         this.forgeCardsGroup.remove(fcv.mesh);
         this.forgeCardsVisuals = this.forgeCardsVisuals.filter(v => v.cardId !== card.id);
         
-        fcv = new ForgeCardVisual(card);
+        fcv = new ForgeCardVisual(card, isPointsMode);
         this.forgeCardsGroup.add(fcv.mesh);
         this.forgeCardsVisuals.push(fcv);
       }
@@ -2209,10 +2223,11 @@ export class RenderManager {
     });
 
     // 2. Add visual cards that are newly drawn
+    const isPointsMode = this.engine.runState.combatMode === 'points';
     cards.forEach(card => {
       const exists = this.cardVisuals.some(cv => cv.mesh.userData.cardId === card.id);
       if (!exists) {
-        const cv = new CardVisual(card);
+        const cv = new CardVisual(card, isPointsMode);
         cv.mesh.position.set(0, -0.8, -0.5);
         cv.mesh.rotation.set(0, 0, 0);
         cv.mesh.scale.set(0.01, 0.01, 0.01);
@@ -2234,10 +2249,11 @@ export class RenderManager {
     });
 
     // 2. Add visual cards that are newly played
+    const isPointsModePlay = this.engine.runState.combatMode === 'points';
     cards.forEach(card => {
       const exists = this.playedCardVisuals.some(cv => cv.mesh.userData.cardId === card.id);
       if (!exists) {
-        const cv = new CardVisual(card);
+        const cv = new CardVisual(card, isPointsModePlay);
         cv.mesh.position.set(0, 0.006, 0.85);
         cv.mesh.rotation.set(-Math.PI / 2, 0, 0);
         this.playedCardsGroup.add(cv.mesh);

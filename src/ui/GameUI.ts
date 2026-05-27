@@ -2,7 +2,7 @@ import { GameEngine } from '../core/GameEngine';
 import { SoundManager } from './SoundManager';
 import { Card, MapNode, SlotColor, BetColor } from '../core/Types';
 import { getSlotColor } from '../physics/RoulettePhysics';
-import { CARD_DATABASE, getRandomCardId } from '../cards/CardDatabase';
+import { CARD_DATABASE, getRandomCardId, formatDescription } from '../cards/CardDatabase';
 import { WHEEL_TEMPLATES, BOARD_UPGRADES, getAllWheels } from '../core/WheelUpgrades';
 
 export class GameUI {
@@ -149,6 +149,7 @@ export class GameUI {
     const itemId = renderer.selectedShopItemId;
     const activeTab = this.activeShopTab;
     const state = this.engine.runState;
+    const isPoints = state.combatMode === 'points';
 
     if (activeTab === 'cards') {
       if (itemId === '999') {
@@ -157,7 +158,7 @@ export class GameUI {
         const isFull = state.hp >= state.maxHp;
         descBox.innerHTML = `
           <div class="shop-desc-title">BLOOD INFUSION</div>
-          <div class="shop-desc-text">Transfuse essence back into your veins. Heals 25 HP.</div>
+          <div class="shop-desc-text">${formatDescription('Transfuse essence back into your veins. Heals 25 HP.', isPoints)}</div>
           <div class="shop-desc-hint">Cost: ${healCost} ⚡ · ${isFull ? 'Already Full HP' : canAfford ? 'Click Bell or Confirm Button to Buy' : 'Cannot Afford'}</div>
         `;
         confirmBtn.disabled = !canAfford;
@@ -169,7 +170,7 @@ export class GameUI {
           const canAfford = state.chips >= item.cost;
           descBox.innerHTML = `
             <div class="shop-desc-title">${item.name.toUpperCase()}</div>
-            <div class="shop-desc-text">${item.desc}</div>
+            <div class="shop-desc-text">${formatDescription(item.desc, isPoints)}</div>
             <div class="shop-desc-hint">Rarity: ${item.rarity.toUpperCase()} · Cost: ${item.cost} ⚡ | ${canAfford ? 'Click Bell or Confirm Button to Buy' : 'Cannot Afford'}</div>
           `;
           confirmBtn.disabled = !canAfford;
@@ -186,7 +187,7 @@ export class GameUI {
         const canAfford = state.chips >= upgrade.cost && !isOwned;
         descBox.innerHTML = `
           <div class="shop-desc-title">${upgrade.name.toUpperCase()}</div>
-          <div class="shop-desc-text">${upgrade.description}</div>
+          <div class="shop-desc-text">${formatDescription(upgrade.description, isPoints)}</div>
           <div class="shop-desc-hint">Cost: ${upgrade.cost} ⚡ · ${isOwned ? 'OWNED' : canAfford ? 'Click Bell or Confirm to Buy' : 'Cannot Afford'}</div>
         `;
         confirmBtn.disabled = !canAfford;
@@ -1606,6 +1607,23 @@ export class GameUI {
   render() {
     const state = this.engine.runState;
 
+    // Handle encounter-specific procedural music
+    if (state.gameState === 'COMBAT') {
+      const type = this.engine.battleState?.encounterType || 'combat';
+      if (type === 'boss') {
+        this.sound.playEncounterMusic('boss');
+      } else if (type === 'elite') {
+        this.sound.playEncounterMusic('elite');
+      } else {
+        this.sound.playEncounterMusic('combat');
+      }
+    } else if (state.gameState === 'GAME_OVER' || state.gameState === 'MENU' || state.gameState === 'VICTORY') {
+      this.sound.stopMusic();
+    } else {
+      // Ambient states: MAP, SHOP, EVENT, FORGE, LOADOUT_STORE
+      this.sound.playEncounterMusic('ambient');
+    }
+
     this.togglePanel('menu-panel', state.gameState === 'MENU');
     this.togglePanel('store-panel', state.gameState === 'LOADOUT_STORE' && !this.isCustomizingWheel);
     this.togglePanel('wheel-customizer-panel', state.gameState === 'LOADOUT_STORE' && this.isCustomizingWheel);
@@ -1847,9 +1865,11 @@ export class GameUI {
       statusText = `<div class="forge-desc-status" style="color: #00ff66; font-weight: bold; text-shadow: 0 0 6px rgba(0, 255, 100, 0.4);">CLICK TO PURCHASE FOR ${card.cost} ⚡</div>`;
     }
 
+    const isPoints = state.combatMode === 'points';
+
     box.innerHTML = `
       <div class="forge-desc-title rarity-${card.rarity}">${card.name}</div>
-      <div class="forge-desc-text">${card.description}</div>
+      <div class="forge-desc-text">${formatDescription(card.description, isPoints)}</div>
       ${statusText}
     `;
   }
@@ -1997,6 +2017,8 @@ export class GameUI {
 
     let html = '';
 
+    const isPoints = state.combatMode === 'points';
+
     // Render Cards in Shop
     this.shopCards.forEach((item, index) => {
       const canAfford = state.chips >= item.cost;
@@ -2005,7 +2027,7 @@ export class GameUI {
         <div class="shop-card-item glass-panel ${rarityClass}">
           <div class="shop-card-meta">${item.type} · ${item.rarity}</div>
           <div class="card-title">${item.name}</div>
-          <div class="card-desc">${item.desc}</div>
+          <div class="card-desc">${formatDescription(item.desc, isPoints)}</div>
           <button class="btn primary-btn buy-btn" data-idx="${index}" ${!canAfford ? 'disabled' : ''}>
             BUY: ${item.cost} ⚡
           </button>
@@ -2019,7 +2041,7 @@ export class GameUI {
     html += `
       <div class="shop-card-item glass-panel shop-heal-item">
         <div class="card-title">Blood Infusion</div>
-        <div class="card-desc">Transfuse essence back into your veins. Heals 25 HP.</div>
+        <div class="card-desc">${formatDescription('Transfuse essence back into your veins. Heals 25 HP.', isPoints)}</div>
         <button id="buy-heal-btn" class="btn primary-btn buy-btn" ${!canAffordHeal ? 'disabled' : ''}>
           HEAL: ${healCost} ⚡
         </button>
@@ -2067,6 +2089,8 @@ export class GameUI {
     
     let html = '';
     
+    const isPoints = state.combatMode === 'points';
+    
     Object.keys(BOARD_UPGRADES).forEach(key => {
       const upgrade = BOARD_UPGRADES[key];
       const isOwned = playerWheel.upgrades.includes(key);
@@ -2075,7 +2099,7 @@ export class GameUI {
       html += `
         <div class="shop-card-item glass-panel">
           <div class="card-title">${upgrade.name}</div>
-          <div class="card-desc">${upgrade.description}</div>
+          <div class="card-desc">${formatDescription(upgrade.description, isPoints)}</div>
           ${isOwned ? `
             <span class="upgrade-badge">PURCHASED</span>
             <button class="btn primary-btn buy-upgrade-btn" style="opacity: 0.5;" disabled>
@@ -2133,6 +2157,8 @@ export class GameUI {
       <span class="store-loadout-chip rarity-${c.rarity}">${c.name}</span>
     `).join('');
 
+    const isPoints = state.combatMode === 'points';
+
     let cardsHtml = '';
     cardsForSale.forEach(item => {
       const isPurchased = item.purchased;
@@ -2145,7 +2171,7 @@ export class GameUI {
             <span class="store-item-name">${item.name}</span>
             <span class="store-item-cost">${item.pointsCost} PTS</span>
           </div>
-          <div class="store-item-desc">${item.description}</div>
+          <div class="store-item-desc">${formatDescription(item.description, isPoints)}</div>
           <div class="store-item-rarity ${item.rarity}">${item.rarity}</div>
           ${isPurchased ? '<div class="purchased-badge">OWNED</div>' : ''}
         </div>
@@ -2180,7 +2206,7 @@ export class GameUI {
             <span class="store-item-name">${item.name}</span>
             <span class="store-item-cost">${item.pointsCost} PTS</span>
           </div>
-          <div class="store-item-desc">${item.description}</div>
+          <div class="store-item-desc">${formatDescription(item.description, isPoints)}</div>
           ${statsHtml}
           <div class="store-item-rarity ${item.rarity}">${item.rarity}</div>
           ${isPurchased ? '<div class="purchased-badge">ACTIVE</div>' : ''}
@@ -2816,6 +2842,8 @@ export class GameUI {
       return;
     }
     
+    const isPoints = this.engine.runState.combatMode === 'points';
+    
     codexGrid.innerHTML = allCards.map(card => {
       const rarityClass = `codex-card-rarity-${card.rarity}`;
       return `
@@ -2824,7 +2852,7 @@ export class GameUI {
             <span class="codex-card-name">${card.name}</span>
             <span class="codex-card-cost">${card.cost} ⚡</span>
           </div>
-          <div class="codex-card-desc">${card.description}</div>
+          <div class="codex-card-desc">${formatDescription(card.description, isPoints)}</div>
           <div class="codex-card-meta">
             <span>${card.type}</span>
             <span>${card.rarity}</span>
