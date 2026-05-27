@@ -58,6 +58,18 @@ export function getBetColor(color: SlotColor): BetColor {
   return color;
 }
 
+// Resolves special colors back to their base roulette color (red, black, or green)
+export function getEffectiveColor(color: SlotColor, num: number, greenNumbers: number[]): 'red' | 'black' | 'green' {
+  if (color === 'red' || color === 'black' || color === 'green') {
+    return color;
+  }
+  // For special colors, fallback to the base roulette color
+  if (greenNumbers.includes(num) || num === 0 || num === 37) {
+    return 'green';
+  }
+  return RED_NUMBERS.has(num) ? 'red' : 'black';
+}
+
 // Returns a description of the special effect for a slot color, or null if no effect
 export function getSlotEffect(color: SlotColor, playerHpPercent: number): { description: string; type: string } | null {
   switch (color) {

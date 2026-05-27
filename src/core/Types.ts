@@ -42,6 +42,8 @@ export interface Enemy {
   spriteName: string; // low poly representation name
   isBoss: boolean;
   isElite?: boolean;
+  difficulty?: number;
+  activeCard?: Card | null;
 }
 
 export type NodeType = 'combat' | 'elite' | 'event' | 'shop' | 'boss' | 'forge';
@@ -192,6 +194,7 @@ export interface BattleState {
     betsEvaluated?: Bet[];
     cardsActive?: Card[];
     slotEffect?: string; // description of special color effect that triggered
+    enemyWon?: boolean;
   } | null;
   physicsModifiers: PhysicsModifiers;
   boardModifiers: BoardModifiers;

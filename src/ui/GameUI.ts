@@ -1320,18 +1320,11 @@ export class GameUI {
     // 1. Move camera to view 5 (Cinematic opponent diagonal view)
     this.setCurrentView(5);
 
-    // 2. Decide enemy bet (RED or BLACK or rare color if present on the wheel)
-    const possibleBets = ['red', 'black'];
-    const activeWheel = battle.enemyWheel || battle.playerWheel;
-    const hasColor = (c: SlotColor) => activeWheel.numbers.some(n => getSlotColor(n, activeWheel) === c);
-    
-    if (hasColor('green') || (battle.enemy.isBoss && Math.random() < 0.15)) possibleBets.push('green');
-    if (hasColor('gold')) possibleBets.push('gold');
-    if (hasColor('purple')) possibleBets.push('purple');
-    if (hasColor('cyan')) possibleBets.push('cyan');
-    if (hasColor('crimson')) possibleBets.push('crimson');
-    
-    const enemyBetType = possibleBets[Math.floor(Math.random() * possibleBets.length)];
+    // 2. Decide enemy play using AI
+    const playResult = this.engine.chooseEnemyPlay();
+    const enemyBetType = playResult.betType;
+    const enemyBetNumber = playResult.numberValue;
+    const enemyCard = playResult.card;
 
     // 3. Pause for 1.0 second to let the camera settle so the player sees the opponent
     setTimeout(() => {
@@ -1339,7 +1332,7 @@ export class GameUI {
 
       // 4. Play opponent card and bet animation in 3D scene (duration = 3.5s)
       if (this.renderer) {
-        this.renderer.playOpponentActionAnimation(battle.enemy.intent, enemyBetType);
+        this.renderer.playOpponentActionAnimation(battle.enemy.intent, enemyBetType, enemyBetNumber, enemyCard || undefined);
       }
 
       // 5. Wait for visual animation to complete (3.5s) + extra pause (1.5s) = 5.0 seconds
@@ -1355,7 +1348,7 @@ export class GameUI {
 
           // 8. Set enemy's bet in engine state
           const amount = Math.max(1, battle.enemy.intent.value);
-          battle.bets = [{ type: enemyBetType as any, amount }];
+          battle.bets = [{ type: enemyBetType as any, amount, numberValue: enemyBetNumber }];
           this.render(); // update chips stacks
 
           // 9. Spin wheel for the enemy
@@ -1380,17 +1373,23 @@ export class GameUI {
     const colorText = res.color.toUpperCase();
     const outcomeText = `${res.number} ${colorText}`;
     
-    if (res.playerDamageTaken > 0) {
-      this.spinMessage = `ENEMY LANDED ON: ${outcomeText}! <br><span class="text-red">HIT! YOU TAKE ${res.playerDamageTaken} DAMAGE!</span>`;
-    } else {
-      const intent = this.engine.battleState?.enemy.intent;
-      if (intent && intent.type === 'steal_chips') {
+    const intent = this.engine.battleState?.enemy.intent;
+    if (res.enemyWon) {
+      if (intent && intent.type === 'attack') {
+        if (res.playerDamageTaken > 0) {
+          this.spinMessage = `ENEMY LANDED ON: ${outcomeText}! <br><span class="text-red">HIT! YOU TAKE ${res.playerDamageTaken} DAMAGE!</span>`;
+        } else {
+          this.spinMessage = `ENEMY LANDED ON: ${outcomeText}! <br><span class="text-green">BLOCKED! Shield absorbed the attack!</span>`;
+        }
+      } else if (intent && intent.type === 'steal_chips') {
         this.spinMessage = `ENEMY LANDED ON: ${outcomeText}! <br><span class="text-red">STEAL! THEY STOLE ${intent.value} CHIPS!</span>`;
       } else if (intent && intent.type === 'physics_debuff') {
         this.spinMessage = `ENEMY LANDED ON: ${outcomeText}! <br><span class="text-red">DEBUFF! WHEEL FRICTION DOUBLED!</span>`;
       } else {
-        this.spinMessage = `ENEMY LANDED ON: ${outcomeText}. <br><span class="text-green">MISS! NO DAMAGE TAKEN.</span>`;
+        this.spinMessage = `ENEMY LANDED ON: ${outcomeText}! <br><span class="text-red">HIT! Effect triggered!</span>`;
       }
+    } else {
+      this.spinMessage = `ENEMY LANDED ON: ${outcomeText}. <br><span class="text-green">MISS! NO DAMAGE TAKEN.</span>`;
     }
     
     this.render();
@@ -1646,6 +1645,15 @@ export class GameUI {
       const chipsText = this.root.querySelector('#hud-chips-text') as HTMLElement;
       const floorText = this.root.querySelector('#hud-floor-text') as HTMLElement;
       
+      const hpDisplay = this.root.querySelector('.hp-display') as HTMLElement;
+      if (hpDisplay) {
+        if (state.combatMode === 'points') {
+          hpDisplay.classList.add('hidden');
+        } else {
+          hpDisplay.classList.remove('hidden');
+        }
+      }
+
       if (hpBar) hpBar.style.width = `${hpPercent}%`;
       if (hpText) hpText.innerText = `${state.hp} / ${state.maxHp}`;
       if (chipsText) chipsText.innerText = `${state.chips} ⚡`;

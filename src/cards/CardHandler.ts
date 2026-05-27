@@ -56,11 +56,7 @@ export class CardHandler {
         battleState.boardModifiers.payoutMultipliers.red = 1.0;
         break;
 
-      case 'ROYAL_VELVET':
-        battleState.boardModifiers.payoutMultipliers.green = 250.0;
-        runState.maxHp = Math.max(5, runState.maxHp - 5);
-        runState.hp = Math.min(runState.hp, runState.maxHp);
-        break;
+
 
       case 'UNLUCKY_THIRTEEN':
         battleState.boardModifiers.customNumberMultipliers[13] = 300;
@@ -388,10 +384,7 @@ export class CardHandler {
         battleState.boardModifiers.chipMines[chipSlot] = 15;
         break;
 
-      case 'LIFE_FOUNTAIN':
-        const healSlot = Math.floor(Math.random() * 37);
-        battleState.boardModifiers.lifeFountains[healSlot] = 10;
-        break;
+
 
       case 'SHIELD_GENERATOR':
         const shieldSlot = Math.floor(Math.random() * 37);
@@ -437,10 +430,7 @@ export class CardHandler {
 
 
       // --- UTILITY MODIFIERS ---
-      case 'BLOOD_BET':
-        runState.hp = Math.max(1, runState.hp - 5);
-        battleState.chipsPool += 8;
-        break;
+
 
       case 'DOUBLE_DOWN':
         battleState.boardModifiers.payoutMultipliers.red *= 2;
@@ -482,10 +472,7 @@ export class CardHandler {
         }
         break;
 
-      case 'GOLDEN_BLOOD':
-        runState.hp = Math.max(1, runState.hp - 10);
-        battleState.chipsPool += 18;
-        break;
+
 
       case 'RISK_CAPITAL':
         battleState.chipsPool += 10;
@@ -513,10 +500,7 @@ export class CardHandler {
         // Aegis reflection check is handled in resolveEnemySpin
         break;
 
-      case 'BLOOD_SHIELD':
-        runState.hp = Math.max(1, runState.hp - 3);
-        battleState.playerBlock += 8;
-        break;
+
 
       case 'QUICK_DRAW':
         for (let q = 0; q < 2; q++) {

@@ -24,7 +24,7 @@ export class WheelVisual {
     this.buildWheel(isEnemy, config);
   }
 
-  rebuildWheel(isEnemy: boolean, config: WheelConfig) {
+  rebuildWheel(isEnemy: boolean, config: WheelConfig, predictionSector: number[] = []) {
     this.isEnemyWheel = isEnemy;
     // Dispose previous geometries and materials to avoid memory leaks
     this.group.traverse((child) => {
@@ -41,7 +41,7 @@ export class WheelVisual {
       this.group.remove(this.group.children[0]);
     }
 
-    this.buildWheel(isEnemy, config);
+    this.buildWheel(isEnemy, config, predictionSector);
   }
 
   setBallVisible(visible: boolean) {
@@ -50,7 +50,7 @@ export class WheelVisual {
     }
   }
 
-  private buildWheel(isEnemy: boolean, config: WheelConfig) {
+  private buildWheel(isEnemy: boolean, config: WheelConfig, predictionSector: number[] = []) {
     const slotCount = config.numbers.length;
     const slotAngle = (Math.PI * 2) / slotCount;
 
@@ -107,7 +107,7 @@ export class WheelVisual {
     // Number Ring
     const ringGeo = new THREE.CircleGeometry(0.8, 64);
     const ringMat = new THREE.MeshBasicMaterial({
-      map: this.createWheelTexture(isEnemy, config),
+      map: this.createWheelTexture(isEnemy, config, predictionSector),
       side: THREE.DoubleSide,
       fog: false
     });
@@ -191,7 +191,7 @@ export class WheelVisual {
     }
   }
 
-  private createWheelTexture(isEnemy: boolean, config: WheelConfig): THREE.Texture {
+  private createWheelTexture(isEnemy: boolean, config: WheelConfig, predictionSector: number[] = []): THREE.Texture {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
@@ -232,6 +232,16 @@ export class WheelVisual {
       ctx.closePath();
       ctx.fillStyle = colorStr;
       ctx.fill();
+
+      // If prediction is active and this slot is NOT in the predicted sector, darken it!
+      if (predictionSector.length > 0 && !predictionSector.includes(num)) {
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.arc(centerX, centerY, 240, startAngle, endAngle);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+        ctx.fill();
+      }
     }
 
     // 2. Draw gold/bronze inner slope circle to cover center of sectors
@@ -274,7 +284,11 @@ export class WheelVisual {
       ctx.translate(190, 0); // radius on canvas where numbers go
       ctx.rotate(Math.PI / 2); // orient text circumferentially
 
-      ctx.fillStyle = isEnemy ? '#ffcccc' : '#ffffff';
+      if (predictionSector.length > 0 && !predictionSector.includes(num)) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.25)'; // dim text
+      } else {
+        ctx.fillStyle = isEnemy ? '#ffcccc' : '#ffffff';
+      }
       ctx.font = 'bold 22px "Courier Prime", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';

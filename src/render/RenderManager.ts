@@ -212,8 +212,8 @@ export class RenderManager {
     const battle = this.engine.battleState;
     if (!battle) return;
     
-    this.wheelVis.rebuildWheel(false, battle.playerWheel);
-    this.enemyWheelVis.rebuildWheel(true, battle.enemyWheel);
+    this.wheelVis.rebuildWheel(false, battle.playerWheel, battle.predictionSector);
+    this.enemyWheelVis.rebuildWheel(true, battle.enemyWheel, []);
     this.enemyVis.rebuildEnemy(battle.enemy.spriteName);
     
     // Also reset active states
@@ -1345,6 +1345,9 @@ export class RenderManager {
     const colWidth = 820 / cols;
     const rowHeight = 300 / 3;
 
+    // Get prediction sector if available
+    const predictionSector = (!isEnemy && battle) ? (battle.predictionSector || []) : [];
+
     // 2. Draw Green Sector (usually contains 0)
     ctx.fillStyle = '#4caf50';
     ctx.fillRect(40, 40, 120, 300);
@@ -1358,11 +1361,25 @@ export class RenderManager {
     ctx.textBaseline = 'middle';
     ctx.fillText(activeWheel.greenNumbers.join('/'), 100, 190);
 
+    // Highlight green sector if prediction is active and at least one green number is predicted
+    if (predictionSector.length > 0 && activeWheel.greenNumbers.some((n: number) => predictionSector.includes(n))) {
+      ctx.save();
+      ctx.strokeStyle = '#00ff64';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(42, 42, 116, 296);
+      ctx.fillStyle = 'rgba(0, 255, 100, 0.2)';
+      ctx.fillRect(40, 40, 120, 300);
+      ctx.restore();
+    } else if (predictionSector.length > 0) {
+      // Darken green sector if prediction is active and no green numbers are predicted
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+      ctx.fillRect(40, 40, 120, 300);
+      ctx.restore();
+    }
+
     // 3. Draw numbers grid
     ctx.font = cols > 12 ? 'bold 22px "Courier Prime", monospace' : 'bold 36px "Courier Prime", monospace';
-    
-    // Get prediction sector if available
-    const predictionSector = (!isEnemy && battle) ? (battle.predictionSector || []) : [];
     
     for (let col = 0; col < cols; col++) {
       for (let row = 0; row < 3; row++) {
@@ -1399,6 +1416,12 @@ export class RenderManager {
           
           // Semi-transparent green overlay
           ctx.fillStyle = 'rgba(0, 255, 100, 0.2)';
+          ctx.fillRect(x, y, colWidth - 2, rowHeight - 2);
+          ctx.restore();
+        } else if (predictionSector.length > 0) {
+          // Darken non-predicted cells
+          ctx.save();
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
           ctx.fillRect(x, y, colWidth - 2, rowHeight - 2);
           ctx.restore();
         }
@@ -2283,7 +2306,7 @@ export class RenderManager {
     });
   }
 
-  playOpponentActionAnimation(intent: { type: string; value: number; description: string }, betType: string, numberValue?: number) {
+  playOpponentActionAnimation(intent: { type: string; value: number; description: string }, betType: string, numberValue?: number, cardToPlay?: Card) {
     // 1. Create intent card mesh
     const canvas = document.createElement('canvas');
     canvas.width = 256;
@@ -2303,18 +2326,32 @@ export class RenderManager {
     ctx.fillStyle = '#170503';
     ctx.fillRect(12, 12, canvas.width - 24, 60);
 
-    // Name
+    // Name & Cost
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 20px "Courier Prime", monospace';
-    ctx.fillText(intent.type.toUpperCase(), 24, 48);
-
-    // Value
-    if (intent.value > 0) {
-      ctx.fillStyle = '#ef5350';
-      ctx.font = 'bold 24px "Courier Prime", monospace';
+    ctx.textBaseline = 'middle';
+    if (cardToPlay) {
+      // Draw card name
+      ctx.font = 'bold 15px "Courier Prime", monospace';
+      ctx.fillText(cardToPlay.name.toUpperCase(), 20, 42);
+      
+      // Draw card cost
+      ctx.fillStyle = '#ffca28';
+      ctx.font = 'bold 22px "Courier Prime", monospace';
       ctx.textAlign = 'right';
-      ctx.fillText(`${intent.value}⚡`, canvas.width - 24, 48);
+      ctx.fillText(`${cardToPlay.cost}⚡`, canvas.width - 20, 42);
       ctx.textAlign = 'left';
+    } else {
+      ctx.font = 'bold 20px "Courier Prime", monospace';
+      ctx.fillText(intent.type.toUpperCase(), 24, 42);
+
+      // Value
+      if (intent.value > 0) {
+        ctx.fillStyle = '#ef5350';
+        ctx.font = 'bold 24px "Courier Prime", monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${intent.value}⚡`, canvas.width - 24, 42);
+        ctx.textAlign = 'left';
+      }
     }
 
     // Illustration placeholder
@@ -2323,19 +2360,29 @@ export class RenderManager {
     ctx.strokeStyle = '#4a0f08';
     ctx.strokeRect(28, 94, canvas.width - 56, 112);
 
-    // Creepy eye
+    // Center symbol
     ctx.fillStyle = '#ef5350';
     ctx.font = 'bold 48px "Courier Prime", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('👁', 128, 150);
+    if (cardToPlay) {
+      let sym = '⚙️';
+      if (cardToPlay.type === 'payout') sym = '💸';
+      else if (cardToPlay.type === 'physics') sym = '🌀';
+      else if (cardToPlay.type === 'board') sym = '📊';
+      ctx.fillText(sym, 128, 150);
+    } else {
+      ctx.fillText('👁', 128, 150);
+    }
 
     // Description
     ctx.fillStyle = '#dddddd';
     ctx.font = 'bold 12px "Courier Prime", monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
-    const words = intent.description.split(' ');
+    
+    const descText = cardToPlay ? cardToPlay.description : intent.description;
+    const words = descText.split(' ');
     let line = '';
     let y = 240;
     for (let n = 0; n < words.length; n++) {

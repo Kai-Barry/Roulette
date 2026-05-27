@@ -1,7 +1,7 @@
 import { RunState, BattleState, GameState, Enemy, Card, MapNode, Bet, PhysicsModifiers, BoardModifiers, EnemyActionType, EnemyIntent, WheelConfig, StoreItem, SlotColor, BetColor, ForgeCard } from './Types';
 import { createStarterDeck, getCardById, CARD_DATABASE, getRandomCardId } from '../cards/CardDatabase';
 import { MapGenerator } from '../map/MapGenerator';
-import { getSlotColor, getBetColor, getSlotEffect, RoulettePhysics } from '../physics/RoulettePhysics';
+import { getSlotColor, getBetColor, getEffectiveColor, getSlotEffect, RoulettePhysics } from '../physics/RoulettePhysics';
 import { CardHandler } from '../cards/CardHandler';
 import { WHEEL_TEMPLATES, BOARD_UPGRADES, applyBoardUpgrade, initializeWheelColors, WHEEL_NUMBERS, WHEEL_POOL, generateStoreWheels, getRandomCommonWheel, getAllWheels } from './WheelUpgrades';
 
@@ -118,6 +118,12 @@ export class GameEngine {
       spriteName = 'the_house';
     }
 
+    let difficulty = 0.25;
+    if (type === 'boss') difficulty = 1.0;
+    else if (type === 'elite') difficulty = 0.85;
+    else if (spriteName === 'wraith') difficulty = 0.7;
+    else if (spriteName === 'croupier') difficulty = 0.5;
+
     const enemy: Enemy = {
       id: `enemy_${Date.now()}`,
       name: enemyName,
@@ -127,7 +133,8 @@ export class GameEngine {
       patternIndex: 0,
       spriteName,
       isBoss: type === 'boss',
-      isElite: type === 'elite'
+      isElite: type === 'elite',
+      difficulty
     };
 
     // Prepare card piles
@@ -145,17 +152,18 @@ export class GameEngine {
       nudgeCheatActive: false
     };
 
+    const playerWheel = this.runState.playerWheel;
     const defaultBoard: BoardModifiers = {
       extraGreenSlots: 0,
       convertNumbersToRed: [],
       convertNumbersToBlack: [],
       payoutMultipliers: {
-        red: 2.0,
-        black: 2.0,
-        green: 14.0,
-        number: 36.0,
-        odd: 2.0,
-        even: 2.0
+        red: playerWheel.payoutMultipliers.red,
+        black: playerWheel.payoutMultipliers.black,
+        green: playerWheel.payoutMultipliers.green,
+        number: playerWheel.payoutMultipliers.number,
+        odd: playerWheel.payoutMultipliers.odd,
+        even: playerWheel.payoutMultipliers.even
       }
     };
 
@@ -335,6 +343,7 @@ export class GameEngine {
       this.battleState.bets.push({ type, amount, numberValue });
     }
 
+    this.updatePrediction();
     return true;
   }
 
@@ -344,6 +353,7 @@ export class GameEngine {
     const totalRefund = this.battleState.bets.reduce((sum, b) => sum + b.amount, 0);
     this.battleState.chipsPool += totalRefund;
     this.battleState.bets = [];
+    this.updatePrediction();
   }
 
   // Collects all winning numbers based on current bets and wheel state
@@ -633,13 +643,14 @@ export class GameEngine {
     this.battleState.bets.forEach(bet => {
       let isWin = false;
       let multiplier = 0;
+      const effColor = getEffectiveColor(color, winningNum, activeWheel.greenNumbers);
 
-      if (bet.type === 'red' && color === 'red') {
+      if (bet.type === 'red' && effColor === 'red') {
         isWin = true;
-        multiplier = activeWheel.payoutMultipliers.red;
-      } else if (bet.type === 'black' && color === 'black') {
+        multiplier = boardModifiers.payoutMultipliers.red;
+      } else if (bet.type === 'black' && effColor === 'black') {
         isWin = true;
-        multiplier = activeWheel.payoutMultipliers.black;
+        multiplier = boardModifiers.payoutMultipliers.black;
       } else if (bet.type === 'green') {
         const isGreenSlot = activeWheel.greenNumbers.includes(winningNum) || 
                             (boardModifiers.extraGreenSlots && boardModifiers.extraGreenSlots > 0 && winningNum === 32) ||
@@ -649,7 +660,7 @@ export class GameEngine {
                             color === 'green';
         if (isGreenSlot) {
           isWin = true;
-          let greenMult = activeWheel.payoutMultipliers.green;
+          let greenMult = boardModifiers.payoutMultipliers.green;
           if ((boardModifiers as any).emeraldForestActive) {
             greenMult *= 2;
           }
@@ -677,7 +688,7 @@ export class GameEngine {
         multiplier = hpPercent < 0.5 ? baseCrimsonMult * 2.0 : baseCrimsonMult;
       } else if (bet.type === 'number' && (bet.numberValue === winningNum || mirrorSlots[winningNum] === bet.numberValue)) {
         isWin = true;
-        multiplier = customNumberMultipliers[winningNum] || activeWheel.payoutMultipliers.number;
+        multiplier = customNumberMultipliers[winningNum] || boardModifiers.payoutMultipliers.number;
         
         const hasSplitBets = this.battleState?.activePlayedCards?.some(c => c.effectId === 'SPLIT_BETS');
         if (hasSplitBets) {
@@ -685,10 +696,10 @@ export class GameEngine {
         }
       } else if (bet.type === 'odd' && !activeWheel.greenNumbers.includes(winningNum) && winningNum % 2 !== 0) {
         isWin = true;
-        multiplier = activeWheel.payoutMultipliers.odd;
+        multiplier = boardModifiers.payoutMultipliers.odd;
       } else if (bet.type === 'even' && !activeWheel.greenNumbers.includes(winningNum) && winningNum % 2 === 0) {
         isWin = true;
-        multiplier = activeWheel.payoutMultipliers.even;
+        multiplier = boardModifiers.payoutMultipliers.even;
       }
 
       if (isWin) {
@@ -774,12 +785,13 @@ export class GameEngine {
 
     // Check if the enemy's bet matches the settled slot
     this.battleState.bets.forEach(bet => {
-      if (bet.type === 'red' && betColor === 'red') {
+      const effColor = getEffectiveColor(color, winningNum, activeWheel.greenNumbers);
+      if (bet.type === 'red' && effColor === 'red') {
         isWin = true;
-      } else if (bet.type === 'black' && betColor === 'black') {
+      } else if (bet.type === 'black' && effColor === 'black') {
         isWin = true;
       } else if (bet.type === 'green') {
-        const isGreenSlot = activeWheel.greenNumbers.includes(winningNum) || betColor === 'green';
+        const isGreenSlot = activeWheel.greenNumbers.includes(winningNum) || effColor === 'green';
         if (isGreenSlot) isWin = true;
       } else if (bet.type === 'number' && bet.numberValue === winningNum) {
         isWin = true;
@@ -835,7 +847,8 @@ export class GameEngine {
       damageDealt: 0,
       playerDamageTaken,
       betsEvaluated: this.battleState.bets.map(b => ({ ...b })),
-      cardsActive: [...(this.battleState.activePlayedCards || [])]
+      cardsActive: [...(this.battleState.activePlayedCards || [])],
+      enemyWon: isWin
     };
 
     // Discard enemy bets
@@ -884,6 +897,7 @@ export class GameEngine {
       this.battleState.discardPile.push(...this.battleState.activePlayedCards);
     }
     this.battleState.activePlayedCards = [];
+    this.battleState.enemy.activeCard = null;
 
     // Next turn prep
     this.battleState.turn += 1;
@@ -1048,6 +1062,17 @@ export class GameEngine {
     };
   }
 
+  updatePrediction() {
+    if (!this.battleState) return;
+    if (this.battleState.physicsModifiers.predictionSize > 0) {
+      const activeWheel = (this.battleState as any).activeWheelOwner === 'enemy' ? this.battleState.enemyWheel : this.battleState.playerWheel;
+      const winningNumbers = this.getWinningNumbers(activeWheel);
+      this.battleState.predictionSector = this.runPredictionDryRun(activeWheel, winningNumbers);
+    } else {
+      this.battleState.predictionSector = [];
+    }
+  }
+
   reapplyActiveCards(): boolean {
     if (!this.battleState || !this.battleState.turnStartBackup) return false;
     
@@ -1080,6 +1105,7 @@ export class GameEngine {
       return false;
     }
     
+    this.updatePrediction();
     return true;
   }
 
@@ -1705,5 +1731,222 @@ export class GameEngine {
     this.runState.forgeRerollCount = (this.runState.forgeRerollCount || 0) + 1;
     this.runState.forgeCards = this.generateForgeOffers();
     return true;
+  }
+
+  chooseEnemyPlay(): { betType: string; card: Card | null; numberValue?: number } {
+    if (!this.battleState) return { betType: 'red', card: null };
+    const enemy = this.battleState.enemy;
+    const difficulty = enemy.difficulty !== undefined ? enemy.difficulty : 0.5;
+    const activeWheel = this.battleState.enemyWheel;
+    
+    // 1. Determine enemy card pool based on theme
+    const themeCards: string[] = [];
+    if (enemy.spriteName === 'wraith') {
+      themeCards.push('crimson_surge', 'dark_fury', 'attraction_coil', 'repulsion_coil');
+    } else if (enemy.spriteName === 'croupier') {
+      themeCards.push('green_greed', 'steel_barricade', 'scrap_shield');
+    } else if (enemy.spriteName === 'decay_wheel') {
+      themeCards.push('friction_oil', 'focus_sight');
+    } else if (enemy.isBoss) {
+      themeCards.push('crimson_surge', 'dark_fury', 'green_greed', 'predictive_sight', 'eagle_eye', 'fortress_shield');
+    } else if (enemy.isElite) {
+      themeCards.push('predictive_sight', 'steel_barricade', 'attraction_coil', 'repulsion_coil');
+    } else {
+      // Default gambler
+      themeCards.push('scrap_shield', 'focus_sight');
+    }
+
+    // Pick 2 random cards from their theme pool to represent their "hand" for this turn
+    const shuffled = [...themeCards].sort(() => Math.random() - 0.5);
+    const hand = shuffled.slice(0, 2).map(id => getCardById(id)).filter(Boolean) as Card[];
+    // Add "no card" option
+    const options: (Card | null)[] = [null, ...hand];
+
+    // 2. Determine Risk Tolerance based on scores
+    const isPointsMode = this.runState.combatMode === 'points';
+    let riskTolerance = 0.1;
+    if (isPointsMode && this.battleState) {
+      const pScore = this.battleState.playerScore || 0;
+      const eScore = this.battleState.enemyScore || 0;
+      const roundsPlayed = this.battleState.turn;
+      const maxRounds = this.battleState.maxRounds || 3;
+      
+      if (eScore < pScore) {
+        // Losing! Scale risk tolerance
+        riskTolerance = Math.min(1.0, 0.1 + (pScore - eScore) * 0.08);
+      }
+      
+      // If it's the final round and they are losing, maximize risk!
+      if (roundsPlayed >= maxRounds && eScore < pScore) {
+        riskTolerance = 1.0;
+      }
+    }
+
+    // Helper to evaluate a bet and get its score
+    const evaluateOption = (card: Card | null, betType: string, numberValue?: number) => {
+      // Create temporary battleState backup
+      const originalPhysics = JSON.parse(JSON.stringify(this.battleState!.physicsModifiers));
+      const originalBoard = JSON.parse(JSON.stringify(this.battleState!.boardModifiers));
+      
+      // Apply card if any
+      if (card) {
+        const cardCopy = { ...card, cost: 0 };
+        CardHandler.applyEffect(cardCopy, this.runState, this.battleState!);
+      }
+      
+      // Calculate prediction sector with current physics mods
+      let tempPredictionSector: number[] = [];
+      if (this.battleState!.physicsModifiers.predictionSize > 0) {
+        const winningNumbers = this.getWinningNumbers(activeWheel);
+        tempPredictionSector = this.runPredictionDryRun(activeWheel, winningNumbers);
+      }
+      
+      // Calculate EV
+      const ev = this.calculateBetEV(betType, numberValue, activeWheel, tempPredictionSector, this.battleState!.boardModifiers);
+      
+      // Determine Risk
+      let risk = 0.1;
+      if (betType === 'number') risk = 1.0;
+      else if (betType === 'green') risk = 0.8;
+      else if (['gold', 'purple', 'cyan', 'crimson'].includes(betType)) risk = 0.5;
+      
+      // Score = EV * (1.0 - abs(risk - riskTolerance))
+      const score = ev * (1.0 - Math.abs(risk - riskTolerance));
+      
+      // Restore modifiers
+      this.battleState!.physicsModifiers = originalPhysics;
+      this.battleState!.boardModifiers = originalBoard;
+      
+      return score;
+    };
+
+    // 3. Evaluate all plays (card + bet combination)
+    const allPlays: { card: Card | null; betType: string; numberValue?: number; score: number }[] = [];
+    
+    // Standard bets to evaluate
+    const baseBets = ['red', 'black', 'green', 'odd', 'even'];
+    const hasColor = (c: SlotColor) => activeWheel.numbers.some(n => getSlotColor(n, activeWheel) === c);
+    if (hasColor('gold')) baseBets.push('gold');
+    if (hasColor('purple')) baseBets.push('purple');
+    if (hasColor('cyan')) baseBets.push('cyan');
+    if (hasColor('crimson')) baseBets.push('crimson');
+
+    options.forEach(card => {
+      // Evaluate base bets
+      baseBets.forEach(bet => {
+        const score = evaluateOption(card, bet);
+        allPlays.push({ card, betType: bet, score });
+      });
+      
+      // Temporarily apply card to see predicted sector
+      const originalPhysics = JSON.parse(JSON.stringify(this.battleState!.physicsModifiers));
+      const originalBoard = JSON.parse(JSON.stringify(this.battleState!.boardModifiers));
+      if (card) {
+        const cardCopy = { ...card, cost: 0 };
+        CardHandler.applyEffect(cardCopy, this.runState, this.battleState!);
+      }
+      
+      let tempPredictionSector: number[] = [];
+      if (this.battleState!.physicsModifiers.predictionSize > 0) {
+        const winningNumbers = this.getWinningNumbers(activeWheel);
+        tempPredictionSector = this.runPredictionDryRun(activeWheel, winningNumbers);
+      }
+      
+      // Restore
+      this.battleState!.physicsModifiers = originalPhysics;
+      this.battleState!.boardModifiers = originalBoard;
+      
+      // Evaluate betting on each number in predicted sector
+      tempPredictionSector.forEach(num => {
+        const score = evaluateOption(card, 'number', num);
+        allPlays.push({ card, betType: 'number', numberValue: num, score });
+      });
+    });
+
+    // Sort plays by score descending
+    allPlays.sort((a, b) => b.score - a.score);
+
+    // 4. Implement difficulty choice (choose optimal vs random)
+    let selectedPlay = allPlays[0]; // default to optimal
+    if (Math.random() > difficulty && allPlays.length > 1) {
+      // Choose a less optimal play
+      const randomIdx = Math.floor(Math.random() * Math.min(10, allPlays.length));
+      selectedPlay = allPlays[randomIdx];
+    }
+
+    // 5. Apply the selected card to battleState immediately
+    if (selectedPlay.card) {
+      this.applyEnemyCard(selectedPlay.card);
+      enemy.activeCard = selectedPlay.card;
+    } else {
+      enemy.activeCard = null;
+    }
+
+    return {
+      betType: selectedPlay.betType,
+      card: selectedPlay.card,
+      numberValue: selectedPlay.numberValue
+    };
+  }
+
+  // Helper to calculate EV of a bet
+  private calculateBetEV(betType: string, numberValue: number | undefined, wheel: WheelConfig, predictionSector: number[], boardMods: BoardModifiers): number {
+    let payoutMultiplier = 2.0;
+    if (betType === 'red') payoutMultiplier = boardMods.payoutMultipliers.red;
+    else if (betType === 'black') payoutMultiplier = boardMods.payoutMultipliers.black;
+    else if (betType === 'green') payoutMultiplier = boardMods.payoutMultipliers.green;
+    else if (betType === 'number') payoutMultiplier = boardMods.payoutMultipliers.number;
+    else if (betType === 'gold') payoutMultiplier = wheel.payoutMultipliers.gold || 4;
+    else if (betType === 'purple') payoutMultiplier = wheel.payoutMultipliers.purple || 4;
+    else if (betType === 'cyan') payoutMultiplier = wheel.payoutMultipliers.cyan || 4;
+    else if (betType === 'crimson') payoutMultiplier = wheel.payoutMultipliers.crimson || 6;
+    else if (betType === 'odd') payoutMultiplier = boardMods.payoutMultipliers.odd;
+    else if (betType === 'even') payoutMultiplier = boardMods.payoutMultipliers.even;
+
+    const totalSlots = wheel.numbers.length;
+    
+    if (predictionSector.length > 0) {
+      let wins = 0;
+      predictionSector.forEach(num => {
+        if (this.isBetWinning(betType, numberValue, num, wheel, boardMods)) {
+          wins++;
+        }
+      });
+      return (wins / predictionSector.length) * payoutMultiplier;
+    } else {
+      let wins = 0;
+      wheel.numbers.forEach(num => {
+        if (this.isBetWinning(betType, numberValue, num, wheel, boardMods)) {
+          wins++;
+        }
+      });
+      return (wins / totalSlots) * payoutMultiplier;
+    }
+  }
+
+  // Helper to check if a specific landed number makes a bet win
+  private isBetWinning(betType: string, numberValue: number | undefined, landedNum: number, wheel: WheelConfig, boardMods: BoardModifiers): boolean {
+    const color = getSlotColor(landedNum, wheel, boardMods);
+    const baseCol = getEffectiveColor(color, landedNum, wheel.greenNumbers);
+    
+    if (betType === 'red' && baseCol === 'red') return true;
+    if (betType === 'black' && baseCol === 'black') return true;
+    if (betType === 'green' && baseCol === 'green') return true;
+    if (betType === 'number' && numberValue === landedNum) return true;
+    if (betType === 'odd' && !wheel.greenNumbers.includes(landedNum) && landedNum % 2 !== 0) return true;
+    if (betType === 'even' && !wheel.greenNumbers.includes(landedNum) && landedNum % 2 === 0) return true;
+    if (betType === 'gold' && color === 'gold') return true;
+    if (betType === 'purple' && color === 'purple') return true;
+    if (betType === 'cyan' && color === 'cyan') return true;
+    if (betType === 'crimson' && color === 'crimson') return true;
+    return false;
+  }
+
+  // Helper to apply card effects for the enemy
+  applyEnemyCard(card: Card) {
+    if (!this.battleState) return;
+    const cardCopy = { ...card, cost: 0 };
+    CardHandler.applyEffect(cardCopy, this.runState, this.battleState);
+    this.updatePrediction();
   }
 }

@@ -50,14 +50,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
     rarity: 'uncommon',
     effectId: 'ONYX_ECLIPSE'
   },
-  royal_velvet: {
-    name: 'Royal Velvet',
-    description: 'Green bets deal 250x damage, but reduce Max HP by 5 for this fight.',
-    cost: 3,
-    type: 'payout',
-    rarity: 'legendary',
-    effectId: 'ROYAL_VELVET'
-  },
+
   unlucky_thirteen: {
     name: 'Unlucky 13',
     description: 'Number 13 bets deal 300x damage for the rest of the fight.',
@@ -534,14 +527,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
     rarity: 'uncommon',
     effectId: 'CHIP_MINE'
   },
-  life_fountain: {
-    name: 'Life Fountain',
-    description: 'Mark a number slot. If ball lands here, heal 10 HP.',
-    cost: 1,
-    type: 'board',
-    rarity: 'uncommon',
-    effectId: 'LIFE_FOUNTAIN'
-  },
+
   shield_generator: {
     name: 'Shield Generator',
     description: 'Mark a number slot. If ball lands here, gain 12 Block next turn.',
@@ -608,14 +594,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   },
 
   // Utility / Risk Modifiers (25 cards)
-  blood_bet: {
-    name: 'Blood Bet',
-    description: 'Sacrifice 5 HP to gain 8 extra chips to place bets this turn.',
-    cost: 0,
-    type: 'utility',
-    rarity: 'common',
-    effectId: 'BLOOD_BET'
-  },
+
   double_down: {
     name: 'Double Down',
     description: 'Double all bets placed, but double the enemy damage taken if you miss.',
@@ -648,14 +627,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
     rarity: 'uncommon',
     effectId: 'ESSENCE_RECYCLE'
   },
-  golden_blood: {
-    name: 'Golden Blood',
-    description: 'Sacrifice 10 HP to gain 18 extra chips to place bets this turn.',
-    cost: 0,
-    type: 'utility',
-    rarity: 'uncommon',
-    effectId: 'GOLDEN_BLOOD'
-  },
+
   risk_capital: {
     name: 'Risk Capital',
     description: 'Gain 10 chips, but lose 2 chips per spin for the rest of the fight.',
@@ -704,14 +676,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
     rarity: 'uncommon',
     effectId: 'AEGIS_WARD'
   },
-  blood_shield: {
-    name: 'Blood Shield',
-    description: 'Sacrifice 3 HP to gain 8 Block.',
-    cost: 0,
-    type: 'utility',
-    rarity: 'common',
-    effectId: 'BLOOD_SHIELD'
-  },
+
   quick_draw: {
     name: 'Quick Draw',
     description: 'Draw 2 cards. Costs 1 chip instead of 2.',
@@ -850,7 +815,7 @@ export function createStarterDeck(): Card[] {
     getCardById('table_tilt'),
     getCardById('crimson_flood'),
     getCardById('abyssal_darkness'),
-    getCardById('blood_bet'),
+    getCardById('scrap_shield'),
     getCardById('slow_spin'),
     getCardById('lead_ball'),
     getCardById('magnetic_force'),
