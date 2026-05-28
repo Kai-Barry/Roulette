@@ -4,8 +4,8 @@ export class SoundManager {
   private droneGain: GainNode | null = null;
   
   // Custom audio volumes (0.0 to 1.0)
-  public musicVolume: number = 0.7; // default 70%
-  public droneVolume: number = 0.3; // default 30%
+  public musicVolume: number = 0.55; // default 55%
+  public droneVolume: number = 0.15; // default 15%
   public sfxVolume: number = 0.8;   // default 80%
 
   constructor() {
@@ -30,8 +30,8 @@ export class SoundManager {
   setDroneVolume(vol: number) {
     this.droneVolume = Math.max(0, Math.min(1, vol));
     if (this.droneGain && this.ctx) {
-      // Scale ambient drone with volume slider (max amplitude 0.02)
-      this.droneGain.gain.setValueAtTime(0.02 * this.droneVolume, this.ctx.currentTime);
+      // Scale ambient drone with volume slider (max amplitude 0.006)
+      this.droneGain.gain.setValueAtTime(0.006 * this.droneVolume, this.ctx.currentTime);
     }
   }
 
@@ -61,7 +61,7 @@ export class SoundManager {
     const lfoGain = this.ctx.createGain();
     lfo.type = 'sine';
     lfo.frequency.value = 0.2; // slow wobble
-    lfoGain.gain.value = 0.01 * this.droneVolume;
+    lfoGain.gain.value = 0.002 * this.droneVolume;
 
     lfo.connect(lfoGain);
     lfoGain.connect(this.droneGain.gain);
@@ -70,7 +70,7 @@ export class SoundManager {
     filter.connect(this.droneGain);
     this.droneGain.connect(this.ctx.destination);
     
-    this.droneGain.gain.value = 0.02 * this.droneVolume;
+    this.droneGain.gain.value = 0.006 * this.droneVolume;
     
     this.droneOsc.start(0);
     lfo.start(0);
@@ -231,7 +231,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(1400 * pitchMultiplier, this.ctx.currentTime);
       osc.frequency.linearRampToValueAtTime(400, this.ctx.currentTime + 0.05);
 
-      gain.gain.setValueAtTime(0.12 * this.sfxVolume, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.015 * this.sfxVolume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.06);
 
       const osc2 = this.ctx.createOscillator();
@@ -239,9 +239,9 @@ export class SoundManager {
       osc2.type = 'sine';
       osc2.frequency.setValueAtTime(180 * pitchMultiplier, this.ctx.currentTime);
       osc2.connect(gain2);
-      gain2.gain.setValueAtTime(0.08 * this.sfxVolume, this.ctx.currentTime);
+      gain2.gain.setValueAtTime(0.01 * this.sfxVolume, this.ctx.currentTime);
       gain2.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.06);
-      osc2.connect(this.ctx.destination);
+      gain2.connect(this.ctx.destination);
       osc2.start();
       osc2.stop(this.ctx.currentTime + 0.06);
     } else if (type === 'nudge') {
@@ -250,7 +250,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(900 * pitchMultiplier, this.ctx.currentTime);
       osc.frequency.setValueAtTime(1200 * pitchMultiplier, this.ctx.currentTime + 0.015);
       
-      gain.gain.setValueAtTime(0.1 * this.sfxVolume, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.02 * this.sfxVolume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.035);
     } else if (type === 'friction') {
       // Damped scratching wood/canvas pop noise
@@ -258,7 +258,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(350 * pitchMultiplier, this.ctx.currentTime);
       osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.04);
       
-      gain.gain.setValueAtTime(0.15 * this.sfxVolume, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.03 * this.sfxVolume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.045);
     } else if (type === 'tilt') {
       // Spooky springy wobble pitch slide
@@ -266,7 +266,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(600 * pitchMultiplier, this.ctx.currentTime);
       osc.frequency.exponentialRampToValueAtTime(250, this.ctx.currentTime + 0.05);
       
-      gain.gain.setValueAtTime(0.1 * this.sfxVolume, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.02 * this.sfxVolume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.065);
     } else if (type === 'mass') {
       // Heavy deep wooden thud
@@ -274,7 +274,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(140 * pitchMultiplier, this.ctx.currentTime);
       osc.frequency.exponentialRampToValueAtTime(15, this.ctx.currentTime + 0.09);
       
-      gain.gain.setValueAtTime(0.35 * this.sfxVolume, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.05 * this.sfxVolume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
     } else {
       // Standard click fallback
@@ -282,7 +282,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(800 * pitchMultiplier, this.ctx.currentTime);
       osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.02);
 
-      gain.gain.setValueAtTime(0.25 * this.sfxVolume, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.05 * this.sfxVolume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.025);
     }
 
@@ -415,7 +415,7 @@ export class SoundManager {
         if (Math.random() < 0.4) {
           const notes = [57, 60, 62, 64, 67, 69, 72]; // Am / Dorian pentatonic
           const note = notes[Math.floor(Math.random() * notes.length)];
-          this.playSynthNote(midiToFreq(note + 12), 2.5, 'sine', 0.06);
+          this.playSynthNote(midiToFreq(note + 12), 2.5, 'sine', 0.04);
         }
       } else if (type === 'combat') {
         // Tense minor arpeggio
@@ -423,37 +423,37 @@ export class SoundManager {
         if (step % 2 === 0) {
           const bassNotes = [45, 45, 48, 50, 45, 45, 52, 48]; // A2, C3, D3, E3...
           const bass = bassNotes[(step / 2) % bassNotes.length];
-          this.playSynthNote(midiToFreq(bass), 0.35, 'triangle', 0.12);
+          this.playSynthNote(midiToFreq(bass), 0.35, 'triangle', 0.08);
         }
         // Lead arpeggio
         const leadPattern = [57, 64, 60, 69, 62, 69, 65, 67]; // A3, E4, C4, A4...
         const note = leadPattern[step % leadPattern.length];
-        this.playSynthNote(midiToFreq(note), 0.2, 'sine', 0.05);
+        this.playSynthNote(midiToFreq(note), 0.2, 'sine', 0.035);
       } else if (type === 'elite') {
         // Diminished tension arpeggio
         if (step % 2 === 0) {
           const bassNotes = [39, 42, 45, 48]; // D#2, F#2, A2, C3
           const bass = bassNotes[(step / 2) % bassNotes.length];
-          this.playSynthNote(midiToFreq(bass), 0.28, 'triangle', 0.14);
+          this.playSynthNote(midiToFreq(bass), 0.28, 'triangle', 0.09);
         }
         const leadPattern = [51, 57, 54, 60, 57, 63, 60, 66]; // D#3, A3, F#3, C4...
         const note = leadPattern[step % leadPattern.length];
-        this.playSynthNote(midiToFreq(note), 0.18, 'triangle', 0.06);
+        this.playSynthNote(midiToFreq(note), 0.18, 'triangle', 0.04);
       } else if (type === 'boss') {
         // Chromatic industrial
         if (step % 4 === 0) {
           const bassNotes = [40, 41, 40, 39]; // E2, F2, E2, D#2
           const bass = bassNotes[(step / 4) % bassNotes.length];
-          this.playSynthNote(midiToFreq(bass), 0.35, 'sawtooth', 0.10);
+          this.playSynthNote(midiToFreq(bass), 0.35, 'sawtooth', 0.06);
         }
         // Industrial pulse lead
         const leadPattern = [64, 65, 64, 63, 67, 66, 65, 64, 60, 61, 60, 59, 64, 63, 62, 60];
         const note = leadPattern[step % leadPattern.length];
         if (step % 2 === 0) {
-          this.playSynthNote(midiToFreq(note), 0.14, 'square', 0.04);
+          this.playSynthNote(midiToFreq(note), 0.14, 'square', 0.02);
         } else if (step % 7 === 0) {
           // Creepy pitch slider
-          this.playSynthNote(midiToFreq(note + 12), 0.32, 'sawtooth', 0.04, midiToFreq(note));
+          this.playSynthNote(midiToFreq(note + 12), 0.32, 'sawtooth', 0.02, midiToFreq(note));
         }
       }
 

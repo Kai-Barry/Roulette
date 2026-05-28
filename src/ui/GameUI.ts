@@ -11,7 +11,7 @@ export class GameUI {
   private root: HTMLElement;
   
   // Active bet configuration
-  private currentBetAmount = 5;
+  public currentBetAmount = 5;
   private selectedBetType: 'red' | 'black' | 'green' | 'number' = 'red';
   private selectedBetNumber = 0;
 
@@ -28,7 +28,9 @@ export class GameUI {
   // Codex filter state
   private codexRarityFilter = 'all';
   private codexTypeFilter = 'all';
-  private mobileModeActive = false;
+  public mobileModeActive = false;
+  public isCombatIntroActive: boolean = false;
+  private selectedFloors = 7;
 
   // Forge state
   private hoveredForgeCardId: string | null = null;
@@ -62,6 +64,8 @@ export class GameUI {
   private currentView = 4;
   public onViewChanged?: (viewId: number) => void;
   public renderer: any = null;
+  private lastWheelView = 3;
+  private lastEncounterId = '';
 
   public setRenderer(renderer: any) {
     this.renderer = renderer;
@@ -253,10 +257,17 @@ export class GameUI {
     
     // Load persisted settings
     try {
-      this.sound.musicVolume = parseFloat(localStorage.getItem('settings_musicVolume') ?? '0.7');
-      this.sound.droneVolume = parseFloat(localStorage.getItem('settings_droneVolume') ?? '0.3');
+      this.sound.musicVolume = parseFloat(localStorage.getItem('settings_musicVolume') ?? '0.55');
+      this.sound.droneVolume = parseFloat(localStorage.getItem('settings_droneVolume') ?? '0.15');
       this.sound.sfxVolume = parseFloat(localStorage.getItem('settings_sfxVolume') ?? '0.8');
-      this.mobileModeActive = localStorage.getItem('settings_mobileModeActive') === 'true';
+      const hasMobileSetting = localStorage.getItem('settings_mobileModeActive') !== null;
+      if (hasMobileSetting) {
+        this.mobileModeActive = localStorage.getItem('settings_mobileModeActive') === 'true';
+      } else {
+        const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
+        this.mobileModeActive = isMobileDevice;
+        localStorage.setItem('settings_mobileModeActive', this.mobileModeActive.toString());
+      }
     } catch (e) {
       console.warn("localStorage settings reading failed:", e);
     }
@@ -409,6 +420,14 @@ export class GameUI {
                 <button class="btn dev-teleport-btn" data-node="forge" style="border-color: #ff5500; color: #ff5500;">Forge</button>
               </div>
             </div>
+
+            <!-- Group: ENEMY DECISION PROCESS -->
+            <div class="dev-group" id="dev-enemy-decision-group">
+              <div class="dev-group-title">Enemy Decision Process</div>
+              <div id="dev-enemy-decision-content" style="font-size: 11px; color: #ece0d8; line-height: 1.4;">
+                Active combat required.
+              </div>
+            </div>
           </div>
 
           <!-- SPIN RESOLUTION REPORT SCREEN -->
@@ -456,15 +475,15 @@ export class GameUI {
                 <div style="display: flex; justify-content: space-between; align-items: center; font-family: 'VT323', monospace; font-size: 1.1rem; color: #fff;">
                   <span>Music Volume:</span>
                   <div style="display: flex; align-items: center; gap: 10px; width: 60%;">
-                    <input type="range" id="vol-music-slider" min="0" max="100" value="70" style="flex: 1; accent-color: var(--color-gold); height: 4px; cursor: pointer;">
-                    <span id="vol-music-lbl" style="width: 35px; text-align: right;">70%</span>
+                    <input type="range" id="vol-music-slider" min="0" max="100" value="55" style="flex: 1; accent-color: var(--color-gold); height: 4px; cursor: pointer;">
+                    <span id="vol-music-lbl" style="width: 35px; text-align: right;">55%</span>
                   </div>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; font-family: 'VT323', monospace; font-size: 1.1rem; color: #fff;">
                   <span>Drone/Hum:</span>
                   <div style="display: flex; align-items: center; gap: 10px; width: 60%;">
-                    <input type="range" id="vol-drone-slider" min="0" max="100" value="30" style="flex: 1; accent-color: var(--color-gold); height: 4px; cursor: pointer;">
-                    <span id="vol-drone-lbl" style="width: 35px; text-align: right;">30%</span>
+                    <input type="range" id="vol-drone-slider" min="0" max="100" value="15" style="flex: 1; accent-color: var(--color-gold); height: 4px; cursor: pointer;">
+                    <span id="vol-drone-lbl" style="width: 35px; text-align: right;">15%</span>
                   </div>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; font-family: 'VT323', monospace; font-size: 1.1rem; color: #fff;">
@@ -495,10 +514,21 @@ export class GameUI {
           <!-- PANEL: MAIN MENU -->
           <div id="menu-panel" class="panel active">
             <h1 class="game-title">ROULETTE.OS</h1>
+            
+            <!-- Path Length Selector -->
+            <div class="menu-selector-row">
+              <span class="selector-label">PATH LENGTH SELECTOR:</span>
+              <div class="selector-btns">
+                <button class="selector-btn active" data-floors="7">SHORT</button>
+                <button class="selector-btn" data-floors="11">MEDIUM</button>
+                <button class="selector-btn" data-floors="15">LONG</button>
+              </div>
+            </div>
+
             <div class="menu-btn-group">
-              <button id="start-run-btn" class="btn primary-btn pulse-glow">ENTER THE TAVERN</button>
-              <button id="codex-btn" class="codex-menu-btn">CARD CODEX</button>
-              <button id="menu-settings-btn" class="codex-menu-btn" style="margin-top: 10px; border-color: #ffd700; color: #ffd700;">SETTINGS</button>
+              <button id="start-run-btn" class="menu-btn primary">ENTER THE TAVERN</button>
+              <button id="codex-btn" class="menu-btn secondary">CARD CODEX</button>
+              <button id="menu-settings-btn" class="menu-btn secondary">SETTINGS</button>
             </div>
           </div>
 
@@ -793,6 +823,18 @@ export class GameUI {
                 <span id="turn-chips-value" class="text-gold">10 ⚡</span>
               </div>
             </div>
+            
+            <!-- Mobile Action Bar (only visible in mobile mode) -->
+            <div class="mobile-action-bar">
+              <div class="mobile-deck-counters" style="flex: 1; display: flex; gap: 15px; justify-content: flex-start; align-items: center;">
+                <div>DRAW: <span id="mobile-draw-count" style="font-weight: bold; color: var(--color-gold);">0</span></div>
+                <div>DISC: <span id="mobile-disc-count" style="font-weight: bold; opacity: 0.8;">0</span></div>
+              </div>
+              <div class="mobile-essence-display" style="flex: 1; display: flex; gap: 8px; justify-content: flex-end; align-items: center; font-family: var(--font-header); font-size: 1.4rem;">
+                <span class="label" style="opacity: 0.7; font-size: 0.9rem;">ESSENCE:</span>
+                <span id="mobile-essence-val" class="text-gold" style="font-weight: bold; text-shadow: 0 0 8px rgba(197,159,81,0.4);">10 ⚡</span>
+              </div>
+            </div>
           </div>
 
           <!-- PANEL: GAME OVER -->
@@ -820,8 +862,23 @@ export class GameUI {
     const startBtn = this.root.querySelector('#start-run-btn');
     startBtn?.addEventListener('click', () => {
       this.sound.playDraw();
-      this.engine.startNewRun();
+      this.engine.startNewRun(this.selectedFloors);
       this.render();
+    });
+
+    // Path length selector buttons
+    const selectorBtns = this.root.querySelectorAll('#menu-panel .selector-btn');
+    selectorBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const floors = parseInt(btn.getAttribute('data-floors') || '7');
+        this.selectedFloors = floors;
+        
+        // Update active class
+        selectorBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        this.sound.playRouletteClick(0.7);
+      });
     });
 
     // Card Codex button
@@ -1066,6 +1123,7 @@ export class GameUI {
         if (isVisible) {
           (devToolsBtn as HTMLElement).style.borderColor = '#ffaa00';
           (devToolsBtn as HTMLElement).style.color = '#ffaa00';
+          this.updateEnemyAIDecisionDev();
         } else {
           (devToolsBtn as HTMLElement).style.borderColor = '#555';
           (devToolsBtn as HTMLElement).style.color = '#888';
@@ -1213,8 +1271,8 @@ export class GameUI {
 
     // Document wide keyboard input tracking
     document.addEventListener('keydown', (e) => {
-      // Toggle debug menu on 'D'
-      if (e.key === 'd' || e.key === 'D') {
+      // Toggle debug menu on backtick ('`' or '~')
+      if (e.key === '`' || e.key === '~') {
         const dBtn = this.root.querySelector('#debug-toggle-btn') as HTMLElement;
         if (dBtn) dBtn.click();
       }
@@ -1222,6 +1280,56 @@ export class GameUI {
       // Switch views on '1' - '7'
       if (['1', '2', '3', '4', '5', '6', '7'].includes(e.key)) {
         this.setCurrentView(parseInt(e.key));
+      }
+
+      // PC Keyboard WASD key navigation when not mobileModeActive
+      if (!this.mobileModeActive) {
+        const key = e.key.toLowerCase();
+        if (key === 'w') {
+          let nextView = this.currentView;
+          if (this.currentView === 4) nextView = 1;
+          else if (this.currentView === 1) nextView = 2;
+          else if (this.currentView === 2) nextView = (this.lastWheelView === 6 ? 6 : 3);
+          else if (this.currentView === 3 || this.currentView === 6) nextView = 5;
+          else if (this.currentView === 5) nextView = 7;
+          else if (this.currentView === 7) nextView = 4;
+          
+          this.sound.playCardSwoosh();
+          this.setCurrentView(nextView);
+        } else if (key === 's') {
+          let nextView = this.currentView;
+          if (this.currentView === 7) nextView = 5;
+          else if (this.currentView === 5) nextView = (this.lastWheelView === 6 ? 6 : 3);
+          else if (this.currentView === 3 || this.currentView === 6) nextView = 2;
+          else if (this.currentView === 2) nextView = 1;
+          else if (this.currentView === 1) nextView = 4;
+          else if (this.currentView === 4) nextView = 7;
+          
+          this.sound.playCardSwoosh();
+          this.setCurrentView(nextView);
+        } else if (key === 'a') {
+          if (this.currentView === 1 && this.renderer) {
+            const count = this.renderer.cardVisuals.length;
+            if (count > 0) {
+              this.renderer.activeHandCardIndex = Math.max(0, this.renderer.activeHandCardIndex - 1);
+              this.sound.playCardSwoosh();
+            }
+          } else if (this.currentView === 3 || this.currentView === 6) {
+            this.setCurrentView(this.currentView === 3 ? 6 : 3);
+            this.sound.playCardSwoosh();
+          }
+        } else if (key === 'd') {
+          if (this.currentView === 1 && this.renderer) {
+            const count = this.renderer.cardVisuals.length;
+            if (count > 0) {
+              this.renderer.activeHandCardIndex = Math.min(count - 1, this.renderer.activeHandCardIndex + 1);
+              this.sound.playCardSwoosh();
+            }
+          } else if (this.currentView === 3 || this.currentView === 6) {
+            this.setCurrentView(this.currentView === 6 ? 3 : 6);
+            this.sound.playCardSwoosh();
+          }
+        }
       }
 
       // Arrow keys navigation
@@ -1373,6 +1481,39 @@ export class GameUI {
       this.sound.playBell();
       settingsOverlay?.classList.add('hidden');
       this.render(); // full UI re-layout and render!
+      window.dispatchEvent(new Event('resize'));
+    });
+
+    // Mobile Draw Card button
+    const mobileDrawBtn = this.root.querySelector('#mobile-draw-btn');
+    mobileDrawBtn?.addEventListener('click', () => {
+      if (this.engine.buyCardDraw()) {
+        this.sound.playDraw();
+        this.render();
+      } else {
+        this.sound.playRouletteClick(0.3);
+      }
+    });
+
+    // Mobile Clear button
+    const mobileClearBtn = this.root.querySelector('#mobile-clear-btn');
+    mobileClearBtn?.addEventListener('click', () => {
+      this.sound.playCardSwoosh();
+      this.engine.clearBets();
+      this.render();
+    });
+
+    // Mobile Spin / End Turn button
+    const mobileSpinBtn = this.root.querySelector('#mobile-spin-btn');
+    mobileSpinBtn?.addEventListener('click', () => {
+      if (this.showTurnEnd) {
+        this.sound.playDraw();
+        this.engine.resolveEnemyTurn();
+        this.showTurnEnd = false;
+        this.render();
+      } else {
+        this.triggerSpin();
+      }
     });
   }
 
@@ -1610,21 +1751,30 @@ export class GameUI {
         }
       }
     } else {
-      if (res.playerDamageTaken > 0) {
-        if (isPointsMode) {
-          summary.innerHTML = `<span class="text-red" style="font-size: 22px; text-shadow: 0 0 10px rgba(255, 0, 0, 0.4);">HIT! OPPONENT SCORED ${res.playerDamageTaken} PTS!</span>`;
+      if (isPointsMode) {
+        const totalEnemyScore = (res.damageDealt || 0) + (res.playerDamageTaken || 0);
+        if (totalEnemyScore > 0) {
+          summary.innerHTML = `<span class="text-red" style="font-size: 22px; text-shadow: 0 0 10px rgba(255, 0, 0, 0.4);">HIT! OPPONENT SCORED ${totalEnemyScore} PTS!</span>`;
         } else {
-          summary.innerHTML = `<span class="text-red" style="font-size: 22px; text-shadow: 0 0 10px rgba(255, 0, 0, 0.4);">HIT! YOU TOOK ${res.playerDamageTaken} DAMAGE!</span>`;
+          const intent = battle.enemy.intent;
+          if (intent.type === 'steal_chips') {
+            summary.innerHTML = `<span class="text-red" style="font-size: 18px;">STEAL! OPPONENT STOLE ${intent.value} CHIPS!</span>`;
+          } else if (intent.type === 'physics_debuff') {
+            summary.innerHTML = `<span class="text-red" style="font-size: 18px;">DEBUFF! WHEEL FRICTION WAS DOUBLED!</span>`;
+          } else {
+            summary.innerHTML = `<span class="text-green" style="font-size: 18px;">MISS! NO POINTS SCORED.</span>`;
+          }
         }
       } else {
-        const intent = battle.enemy.intent;
-        if (intent.type === 'steal_chips') {
-          summary.innerHTML = `<span class="text-red" style="font-size: 18px;">STEAL! OPPONENT STOLE ${intent.value} CHIPS!</span>`;
-        } else if (intent.type === 'physics_debuff') {
-          summary.innerHTML = `<span class="text-red" style="font-size: 18px;">DEBUFF! WHEEL FRICTION WAS DOUBLED!</span>`;
+        // Health mode
+        if (res.playerDamageTaken > 0) {
+          summary.innerHTML = `<span class="text-red" style="font-size: 22px; text-shadow: 0 0 10px rgba(255, 0, 0, 0.4);">HIT! YOU TOOK ${res.playerDamageTaken} DAMAGE!</span>`;
         } else {
-          if (isPointsMode) {
-            summary.innerHTML = `<span class="text-green" style="font-size: 18px;">MISS! NO POINTS SCORED.</span>`;
+          const intent = battle.enemy.intent;
+          if (intent.type === 'steal_chips') {
+            summary.innerHTML = `<span class="text-red" style="font-size: 18px;">STEAL! OPPONENT STOLE ${intent.value} CHIPS!</span>`;
+          } else if (intent.type === 'physics_debuff') {
+            summary.innerHTML = `<span class="text-red" style="font-size: 18px;">DEBUFF! WHEEL FRICTION WAS DOUBLED!</span>`;
           } else {
             summary.innerHTML = `<span class="text-green" style="font-size: 18px;">MISS! NO DAMAGE TAKEN.</span>`;
           }
@@ -1656,6 +1806,15 @@ export class GameUI {
         else if (bet.type === 'green') {
           const isGreenSlot = getSlotColor(res.number, activeWheel, battle.boardModifiers) === 'green';
           if (isGreenSlot) { isWin = true; mult = activeWheel.payoutMultipliers.green; }
+        }
+        else if (bet.type === 'gold' && res.color === 'gold') { isWin = true; mult = activeWheel.payoutMultipliers.gold || 4.0; }
+        else if (bet.type === 'purple' && res.color === 'purple') { isWin = true; mult = activeWheel.payoutMultipliers.purple || 4.0; }
+        else if (bet.type === 'cyan' && res.color === 'cyan') { isWin = true; mult = activeWheel.payoutMultipliers.cyan || 4.0; }
+        else if (bet.type === 'crimson' && res.color === 'crimson') {
+          isWin = true;
+          const baseCrimsonMult = activeWheel.payoutMultipliers.crimson || 6.0;
+          const hpPercent = this.engine.runState.hp / this.engine.runState.maxHp;
+          mult = hpPercent < 0.5 ? baseCrimsonMult * 2.0 : baseCrimsonMult;
         }
         else if (bet.type === 'number' && bet.numberValue === res.number) { isWin = true; mult = activeWheel.payoutMultipliers.number; }
         else if (bet.type === 'odd' && !activeWheel.greenNumbers.includes(res.number) && res.number % 2 !== 0) { isWin = true; mult = activeWheel.payoutMultipliers.odd; }
@@ -1734,6 +1893,9 @@ export class GameUI {
 
   private setCurrentView(viewId: number) {
     this.currentView = viewId;
+    if (viewId === 3 || viewId === 6) {
+      this.lastWheelView = viewId;
+    }
     
     // Update view controller button active states
     const btns = this.root.querySelectorAll('.view-controller-hud .view-btn');
@@ -1805,7 +1967,12 @@ export class GameUI {
     this.togglePanel('victory-panel', state.gameState === 'VICTORY');
     
     // Toggle overlays
-    this.togglePanel('hud-panel', state.gameState !== 'MENU' && state.gameState !== 'LOADOUT_STORE' && state.gameState !== 'GAME_OVER' && state.gameState !== 'VICTORY');
+    const showHud = state.gameState !== 'MENU' && 
+                    state.gameState !== 'LOADOUT_STORE' && 
+                    state.gameState !== 'GAME_OVER' && 
+                    state.gameState !== 'VICTORY' && 
+                    !(this.mobileModeActive && state.gameState === 'COMBAT');
+    this.togglePanel('hud-panel', showHud);
     this.togglePanel('combat-ui', state.gameState === 'COMBAT');
     
     // Update Top HUD
@@ -1860,8 +2027,18 @@ export class GameUI {
       this.renderForge();
     }
 
+    // Reset encounter ID if not in combat
+    if (state.gameState !== 'COMBAT') {
+      this.lastEncounterId = '';
+    }
+
     // Handle Combat UI Rendering
     if (state.gameState === 'COMBAT' && this.engine.battleState) {
+      const battle = this.engine.battleState;
+      if (battle.enemy.id !== this.lastEncounterId) {
+        this.lastEncounterId = battle.enemy.id;
+        this.showCombatIntroOverlay(battle);
+      }
       this.renderCombat();
     }
 
@@ -1900,22 +2077,25 @@ export class GameUI {
     const state = this.engine.runState;
     const map = state.mapNodes;
     
+    const rowHeight = 90;
+    const colWidth = 90;
+    const gridWidth = 320;
+    const centerX = gridWidth / 2;
+    const totalHeight = map.length * rowHeight + 100;
+    
     // Slay the spire style canvas rendering
-    let html = `<div class="map-grid-view">`;
+    let html = `<div class="map-grid-view" style="width: 320px; margin: 0 auto; height: ${totalHeight}px; position: relative;">`;
     
     // Let's create SVG connections lines
-    html += `<svg class="map-connections-svg">`;
+    html += `<svg class="map-connections-svg" style="width: 320px; height: ${totalHeight}px;">`;
     
     // Gather all node locations in SVG coordinate space
     const nodeCoords: Record<string, { x: number; y: number }> = {};
-    const colWidth = 140;
-    const rowHeight = 90;
-    const offsetLeft = 40;
     
     map.forEach((floorNodes, floorIdx) => {
       const cy = (map.length - 1 - floorIdx) * rowHeight + 50; // top floor first
       floorNodes.forEach(node => {
-        const cx = node.lane * colWidth + offsetLeft + 60;
+        const cx = centerX + (node.lane - 1) * colWidth;
         nodeCoords[node.id] = { x: cx, y: cy };
       });
     });
@@ -1998,6 +2178,15 @@ export class GameUI {
         this.render();
       });
     });
+
+    const containerEl = container as HTMLElement;
+    setTimeout(() => {
+      if (containerEl) {
+        const containerHeight = containerEl.clientHeight || 450;
+        const cy = (map.length - 1 - state.currentFloor) * rowHeight + 50;
+        containerEl.scrollTop = cy - containerHeight / 2;
+      }
+    }, 50);
   }
 
   public setHoveredForgeCard(cardId: string | null) {
@@ -2063,16 +2252,23 @@ export class GameUI {
 
     const pm = wheel.payoutMultipliers;
 
+    const flavorText = this.mobileModeActive
+      ? 'Purchase upgrades to shape your wheel layout. Reroll for new offers.'
+      : 'Purchase upgrades to shape your wheel layout and bet payouts. Rerolling generates new offers.';
+
+    const statsStyle = this.mobileModeActive ? 'style="font-size: 1.0rem; margin: 8px auto;"' : '';
+    const multipliersStyle = this.mobileModeActive ? 'style="flex-wrap: wrap; gap: 8px; justify-content: center;"' : '';
+
     container.innerHTML = `
       <div class="forge-hud">
         <div class="forge-title-panel">
           <h1>THE BLACKSMITH'S FORGE</h1>
-          <p class="flavor-text">Purchase upgrades to shape your wheel layout and bet payouts. Rerolling generates new offers.</p>
+          <p class="flavor-text">${flavorText}</p>
         </div>
 
-        <div class="forge-stats-panel">
+        <div class="forge-stats-panel" ${statsStyle}>
           <div>CHIPS: <span class="forge-stats-chips">${state.chips} ⚡</span></div>
-          <div class="forge-stats-multipliers">
+          <div class="forge-stats-multipliers" ${multipliersStyle}>
             SLOTS: <span style="color:#fff;">${wheel.numbers.length}</span> | 
             RED: <span style="color:#ef5350;">${pm.red}x</span> | 
             BLACK: <span style="color:#aaaaaa;">${pm.black}x</span> | 
@@ -2150,6 +2346,13 @@ export class GameUI {
         viewUpgrades.classList.remove('hidden');
         viewCards.classList.add('hidden');
       }
+    }
+
+    const welcomeEl = this.root.querySelector('.shop-welcome') as HTMLElement;
+    if (welcomeEl) {
+      welcomeEl.innerText = this.mobileModeActive 
+        ? '"Spend essence wisely, mortal..."'
+        : '"Spend your essence wisely, mortal. Or bleed for it..."';
     }
 
     // 2. Delegate Rendering
@@ -2662,12 +2865,16 @@ export class GameUI {
     const state = this.engine.runState;
 
     titleEl.innerHTML = "THE HOODED SPECTRE";
-    textEl.innerHTML = `
-      An old croupier with glowing red stitching across their eyes block your path. 
-      They extend a decaying, shaking palm holding a dark magnet and a rusty syringe.
-      <br><br>
-      "A tribute to the wheel... or a transfusion to live. Your choice, mortal..."
-    `;
+    if (this.mobileModeActive) {
+      textEl.innerHTML = `"A tribute to the wheel... or a transfusion to live. Your choice, mortal..."`;
+    } else {
+      textEl.innerHTML = `
+        An old croupier with glowing red stitching across their eyes block your path. 
+        They extend a decaying, shaking palm holding a dark magnet and a rusty syringe.
+        <br><br>
+        "A tribute to the wheel... or a transfusion to live. Your choice, mortal..."
+      `;
+    }
 
     choicesContainer.innerHTML = `
       <button class="event-choice-btn" data-choice="1">
@@ -2703,51 +2910,128 @@ export class GameUI {
   private renderCombat() {
     const battle = this.engine.battleState;
     if (!battle) return;
-
-    // Update Enemy details (Scoreboard or HP bar)
+    // Update Enemy details (Scoreboard or HP bar) - Combined HUD on mobile
     const isPointsMode = this.engine.runState.combatMode === 'points';
     const enemyHud = this.root.querySelector('.enemy-hud') as HTMLElement;
+    const state = this.engine.runState;
+
     if (enemyHud) {
-      if (isPointsMode) {
+      if (this.mobileModeActive) {
+        // Combined mobile HUD
         enemyHud.innerHTML = `
-          <div class="scoreboard-container">
-            <div class="scoreboard-header">
-              <h3 id="enemy-name" class="enemy-title" style="margin: 0; font-size: 15px;">${battle.enemy.name}</h3>
-              <div class="enemy-intent" style="margin-top: 2px;">
-                <span class="intent-label" style="font-size: 8px;">INTENT:</span>
-                <span id="enemy-intent-text" class="intent-desc" style="font-size: 11px;">${battle.enemy.intent.description}</span>
+          <div class="mobile-combined-hud">
+            <!-- Top row: Stats & Menu Buttons -->
+            <div class="mobile-hud-top-row" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(197, 159, 81, 0.25); padding-bottom: 4px; margin-bottom: 6px;">
+              <span class="mobile-hud-stat text-gold" style="font-weight: bold; font-family: var(--font-header); font-size: 1.15rem;">${state.chips} ⚡</span>
+              <span class="mobile-hud-stat" style="font-family: var(--font-header); font-size: 1rem; opacity: 0.85;">FLOOR ${state.currentFloor + 1} / 7</span>
+              <div class="mobile-hud-buttons" style="display: flex; gap: 6px;">
+                <button class="mobile-hud-btn" id="mobile-hud-settings-btn" style="background: rgba(197,159,81,0.1); border: 1px solid var(--color-gold); color: var(--color-gold); font-size: 0.85rem; padding: 2px 6px; border-radius: 4px; cursor: pointer;">⚙ SETTINGS</button>
+                <button class="mobile-hud-btn" id="mobile-hud-abandon-btn" style="background: rgba(229,57,53,0.1); border: 1px solid var(--color-red); color: var(--color-red); font-size: 0.85rem; padding: 2px 6px; border-radius: 4px; cursor: pointer;">🏳 ABANDON</button>
+                <button class="mobile-hud-btn" id="mobile-hud-dev-btn" style="background: rgba(255,170,0,0.1); border: 1px solid #ffaa00; color: #ffaa00; font-size: 0.85rem; padding: 2px 6px; border-radius: 4px; cursor: pointer; display: block;">🛠 DEV</button>
               </div>
             </div>
-            <div class="scoreboard-rounds">
-              <span class="rounds-label">ROUND</span>
-              <span class="rounds-value">${battle.turn} / ${battle.maxRounds || 6}</span>
-              ${battle.isSuddenDeath ? '<div class="sudden-death-glow pulse-fast">SUDDEN DEATH</div>' : ''}
+            
+            <!-- Middle row: Enemy details & intent -->
+            <div class="mobile-hud-middle-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <div class="mobile-hud-enemy-info" style="display: flex; flex-direction: column; align-items: flex-start; text-align: left; width: 100%;">
+                <span class="enemy-name-label" style="font-family: var(--font-header); font-size: 1.1rem; color: #fff; font-weight: bold; text-shadow: 0 0 6px rgba(255,255,255,0.2);">${battle.enemy.name}</span>
+                <span class="enemy-intent-label" style="font-family: var(--font-header); font-size: 0.9rem; color: #ffaa00; margin-top: 1px;">INTENT: <span class="intent-desc-val" style="color: #fff;">${battle.enemy.intent.description}</span></span>
+              </div>
             </div>
-            <div class="scoreboard-scores">
-              <div class="score-box player-score-box">
-                <span class="score-label">PLAYER</span>
-                <span class="score-value">${battle.playerScore || 0}</span>
-              </div>
-              <div class="score-box vs-box">VS</div>
-              <div class="score-box enemy-score-box">
-                <span class="score-label">ENEMY</span>
-                <span class="score-value">${battle.enemyScore || 0}</span>
-              </div>
+            
+            <!-- Bottom row: Scores or HP Bars -->
+            <div class="mobile-hud-bottom-row">
+              ${isPointsMode ? `
+                <div class="mobile-hud-scores" style="display: flex; align-items: center; justify-content: space-between; width: 100%; font-family: var(--font-header);">
+                  <div class="mobile-score-box" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
+                    <span class="score-lbl" style="font-size: 0.75rem; opacity: 0.7;">PLAYER</span>
+                    <span class="score-val" style="font-size: 1.5rem; font-weight: bold; color: var(--color-gold);">${battle.playerScore || 0}</span>
+                  </div>
+                  <div class="mobile-score-vs" style="font-size: 0.9rem; opacity: 0.5; padding: 0 10px;">VS</div>
+                  <div class="mobile-score-box" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
+                    <span class="score-lbl" style="font-size: 0.75rem; opacity: 0.7;">ENEMY</span>
+                    <span class="score-val" style="font-size: 1.5rem; font-weight: bold; color: var(--color-red);">${battle.enemyScore || 0}</span>
+                  </div>
+                  <div class="mobile-score-round" style="display: flex; flex-direction: column; align-items: flex-end; padding-left: 10px; border-left: 1px solid rgba(255,255,255,0.15); margin-left: 10px; font-size: 0.95rem;">
+                    <span>RD ${battle.turn}/${battle.maxRounds || 3}</span>
+                    ${battle.isSuddenDeath ? '<span class="sd-tag pulse-fast" style="color: var(--color-red); font-size: 0.7rem; font-weight: bold; letter-spacing: 0.5px;">SUDDEN DEATH</span>' : ''}
+                  </div>
+                </div>
+              ` : `
+                <div class="mobile-hud-hp-bars" style="display: flex; flex-direction: column; gap: 4px; width: 100%;">
+                  <div class="mobile-hp-bar-item" style="display: flex; align-items: center; gap: 8px;">
+                    <span class="hp-bar-lbl" style="font-family: var(--font-header); font-size: 0.85rem; width: 50px; text-align: left; color: #ecdec0;">BLOOD:</span>
+                    <div class="bar-container player-hp-bar-container" style="flex: 1; height: 14px; position: relative;">
+                      <div class="bar hp-bar" style="width: ${(state.hp / state.maxHp) * 100}%; height: 100%; background: var(--color-red);"></div>
+                      <span class="bar-text" style="font-size: 9px; line-height: 14px;">${state.hp} / ${state.maxHp}</span>
+                    </div>
+                  </div>
+                  <div class="mobile-hp-bar-item" style="display: flex; align-items: center; gap: 8px;">
+                    <span class="hp-bar-lbl" style="font-family: var(--font-header); font-size: 0.85rem; width: 50px; text-align: left; color: #ffaa00;">ENEMY:</span>
+                    <div class="bar-container enemy-hp-bar-container" style="flex: 1; height: 14px; position: relative;">
+                      <div class="bar hp-bar" style="width: ${(battle.enemy.hp / battle.enemy.maxHp) * 100}%; height: 100%; background: #420a06; border: 1px solid var(--color-red);"></div>
+                      <span class="bar-text" style="font-size: 9px; line-height: 14px;">${battle.enemy.hp} / ${battle.enemy.maxHp}</span>
+                    </div>
+                  </div>
+                </div>
+              `}
             </div>
           </div>
         `;
+        
+        // Bind combined mobile HUD buttons to trigger hidden desktop buttons
+        enemyHud.querySelector('#mobile-hud-settings-btn')?.addEventListener('click', () => {
+          this.root.querySelector('#hud-settings-btn')?.dispatchEvent(new Event('click'));
+        });
+        enemyHud.querySelector('#mobile-hud-abandon-btn')?.addEventListener('click', () => {
+          this.root.querySelector('#hud-abandon-btn')?.dispatchEvent(new Event('click'));
+        });
+        enemyHud.querySelector('#mobile-hud-dev-btn')?.addEventListener('click', () => {
+          this.root.querySelector('#dev-tools-btn')?.dispatchEvent(new Event('click'));
+        });
       } else {
-        enemyHud.innerHTML = `
-          <h3 id="enemy-name" class="enemy-title">${battle.enemy.name}</h3>
-          <div class="bar-container enemy-hp-container">
-            <div id="enemy-hp-bar" class="bar hp-bar" style="width: ${(battle.enemy.hp / battle.enemy.maxHp) * 100}%"></div>
-            <span id="enemy-hp-text" class="bar-text">${battle.enemy.hp} / ${battle.enemy.maxHp}</span>
-          </div>
-          <div class="enemy-intent">
-            <span class="intent-label">INTENT:</span>
-            <span id="enemy-intent-text" class="intent-desc">${battle.enemy.intent.description}</span>
-          </div>
-        `;
+        // Desktop Layout Scoreboard or HP
+        if (isPointsMode) {
+          enemyHud.innerHTML = `
+            <div class="scoreboard-container">
+              <div class="scoreboard-header">
+                <h3 id="enemy-name" class="enemy-title" style="margin: 0; font-size: 15px;">${battle.enemy.name}</h3>
+                <div class="enemy-intent" style="margin-top: 2px;">
+                  <span class="intent-label" style="font-size: 8px;">INTENT:</span>
+                  <span id="enemy-intent-text" class="intent-desc" style="font-size: 11px;">${battle.enemy.intent.description}</span>
+                </div>
+              </div>
+              <div class="scoreboard-rounds">
+                <span class="rounds-label">ROUND</span>
+                <span class="rounds-value">${battle.turn} / ${battle.maxRounds || 6}</span>
+                ${battle.isSuddenDeath ? '<div class="sudden-death-glow pulse-fast">SUDDEN DEATH</div>' : ''}
+              </div>
+              <div class="scoreboard-scores">
+                <div class="score-box player-score-box">
+                  <span class="score-label">PLAYER</span>
+                  <span class="score-value">${battle.playerScore || 0}</span>
+                </div>
+                <div class="score-box vs-box">VS</div>
+                <div class="score-box enemy-score-box">
+                  <span class="score-label">ENEMY</span>
+                  <span class="score-value">${battle.enemyScore || 0}</span>
+                </div>
+              </div>
+            </div>
+          `;
+        } else {
+          enemyHud.innerHTML = `
+            <h3 id="enemy-name" class="enemy-title">${battle.enemy.name}</h3>
+            <div class="bar-container enemy-hp-container">
+              <div id="enemy-hp-bar" class="bar hp-bar" style="width: ${(battle.enemy.hp / battle.enemy.maxHp) * 100}%"></div>
+              <span id="enemy-hp-text" class="bar-text">${battle.enemy.hp} / ${battle.enemy.maxHp}</span>
+            </div>
+            <div class="enemy-intent">
+              <span class="intent-label">INTENT:</span>
+              <span id="enemy-intent-text" class="intent-desc">${battle.enemy.intent.description}</span>
+            </div>
+          `;
+        }
       }
     }
 
@@ -2776,6 +3060,17 @@ export class GameUI {
                       (battle.drawPile.length > 0 || battle.discardPile.length > 0) && 
                       battle.hand.length < 8;
       drawCardBtn.disabled = !canDraw;
+    }
+
+    // Mobile Action Bar updates (if mobile mode active)
+    const mobileDrawCount = this.root.querySelector('#mobile-draw-count') as HTMLElement;
+    const mobileDiscCount = this.root.querySelector('#mobile-disc-count') as HTMLElement;
+    if (mobileDrawCount) mobileDrawCount.innerText = `${battle.drawPile.length}`;
+    if (mobileDiscCount) mobileDiscCount.innerText = `${battle.discardPile.length}`;
+
+    const mobileEssenceVal = this.root.querySelector('#mobile-essence-val') as HTMLElement;
+    if (mobileEssenceVal) {
+      mobileEssenceVal.innerText = `${battle.chipsPool} ⚡`;
     }
 
     // Update block shield indicator on player HP bar
@@ -3008,6 +3303,337 @@ export class GameUI {
     } else {
       spinOverlay.classList.add('hidden');
     }
+
+    this.updateEnemyAIDecisionDev();
+  }
+
+  private showCombatIntroOverlay(battle: any) {
+    this.isCombatIntroActive = true;
+
+    // Determine tier tag
+    let tierTag = 'Normal Combat';
+    if (battle.encounterType === 'boss') {
+      tierTag = 'Boss Combat';
+    } else if (battle.encounterType === 'elite') {
+      tierTag = 'Elite Combat';
+    }
+
+    // Select random flavor quote
+    let quotes: string[] = [];
+    const sprite = battle.enemy.spriteName;
+    if (sprite === 'decay_wheel') {
+      quotes = [
+        "A creaking, rusted construct spins before you. The stench of dry rot and oil fills the air.",
+        "It rattles and spins, seeking to grind your bones into dust."
+      ];
+    } else if (sprite === 'croupier') {
+      quotes = [
+        "The dealer slides a decaying, skeletal hand across the felt. 'Place your bets, mortal...'",
+        "'The House always has another seat for a soul like yours...'"
+      ];
+    } else if (sprite === 'wraith') {
+      quotes = [
+        "A crimson mist coalesces into a howling phantom. The table felt runs cold.",
+        "The smell of iron and copper rises. It hungers for your life-blood."
+      ];
+    } else if (sprite === 'dealer_claw') {
+      quotes = [
+        "A massive, mechanical hand made of gold and wire drops from the ceiling! 'Hand over your sanity, gambler!'",
+        "The gears grind. The Claw points at you. The stakes are raised!"
+      ];
+    } else if (sprite === 'the_house') {
+      quotes = [
+        "The Tavern walls shake. The ceiling splits open. A giant, glowing red mask descends. 'I am the House, and I NEVER LOSE.'",
+        "A voice like grinding stone echoes: 'You broke my wheels... now I will break your skull.'"
+      ];
+    } else {
+      quotes = [
+        "A dark presence looms before you. The air grows cold and thick.",
+        "The table is set. The stakes are your very soul."
+      ];
+    }
+    const quote = quotes[Math.floor(Math.random() * quotes.length)];
+
+    // Create the overlay container
+    const overlay = document.createElement('div');
+    overlay.id = 'combat-intro-overlay';
+    
+    // Add css styles
+    const styleId = 'combat-intro-styles';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        #combat-intro-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          background: rgba(10, 5, 3, 0.45);
+          backdrop-filter: blur(4px);
+          -webkit-backdrop-filter: blur(4px);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          z-index: 99999;
+          font-family: 'VT323', monospace;
+          color: #c59f51;
+          text-align: center;
+          padding: 20px;
+          box-sizing: border-box;
+          animation: introFadeIn 0.4s ease-out forwards;
+        }
+        #combat-intro-overlay.fade-out {
+          animation: introFadeOut 0.4s ease-in forwards;
+        }
+        .intro-content {
+          max-width: 600px;
+          transform: scale(0.8);
+          animation: introScaleUp 0.4s ease-out forwards;
+        }
+        .intro-tier {
+          font-size: 1.5rem;
+          letter-spacing: 4px;
+          color: #ff3333;
+          text-transform: uppercase;
+          margin-bottom: 10px;
+          text-shadow: 0 0 10px rgba(255, 51, 51, 0.5);
+        }
+        .intro-name {
+          font-size: 4rem;
+          font-weight: bold;
+          text-transform: uppercase;
+          margin-bottom: 20px;
+          letter-spacing: 2px;
+          text-shadow: 0 0 20px rgba(197, 159, 81, 0.6);
+        }
+        .intro-quote {
+          font-size: 1.6rem;
+          line-height: 1.4;
+          font-style: italic;
+          color: #ece0d8;
+          border-top: 1px solid rgba(197, 159, 81, 0.3);
+          border-bottom: 1px solid rgba(197, 159, 81, 0.3);
+          padding: 15px 0;
+          margin-top: 20px;
+        }
+        @keyframes introFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes introFadeOut {
+          from { opacity: 1; }
+          to { opacity: 0; }
+        }
+        @keyframes introScaleUp {
+          from { transform: scale(0.8); }
+          to { transform: scale(1); }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    overlay.innerHTML = `
+      <div class="intro-content">
+        <div class="intro-tier">${tierTag}</div>
+        <div class="intro-name">${battle.enemy.name}</div>
+        <div class="intro-quote">"${quote}"</div>
+        <div style="font-size: 1.1rem; color: rgba(197, 159, 81, 0.7); margin-top: 25px; letter-spacing: 2px; text-transform: uppercase;">[ Click anywhere to continue ]</div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', () => {
+      overlay.classList.add('fade-out');
+      this.isCombatIntroActive = false;
+
+      if (this.renderer) {
+        const cost = this.engine.getDrawCardCost();
+        const canDraw = battle ? (
+          battle.chipsPool >= cost && 
+          battle.phase === 'betting' && 
+          !this.isSpinning && 
+          (battle.drawPile.length > 0 || battle.discardPile.length > 0) && 
+          battle.hand.length < 8
+        ) : false;
+
+        if (battle && battle.drawsThisTurn === 0 && canDraw) {
+          this.renderer.manualView = 9;
+          this.renderer.hasFocusedDeckThisTurn = true;
+        } else {
+          this.renderer.manualView = 1;
+        }
+      }
+
+      setTimeout(() => {
+        overlay.remove();
+      }, 400);
+    });
+  }
+
+  private calculateMoveEV(intent: any, battleState: any): number {
+    const playerBlock = battleState.playerBlock || 0;
+    const chipPool = battleState.chipsPool || 0;
+    const round = battleState.turn || 1;
+    
+    if (intent.type === 'attack') {
+      const dmgValue = intent.value || 0;
+      let ev = Math.max(0.5, dmgValue - playerBlock);
+      ev = ev * (1 + round * 0.08);
+      return parseFloat(ev.toFixed(2));
+    } else if (intent.type === 'steal_chips') {
+      const stealVal = intent.value || 0;
+      const actualSteal = Math.min(stealVal, chipPool);
+      let ev = actualSteal * 1.5 + 1.0;
+      const maxRounds = battleState.maxRounds || 3;
+      ev = ev * (1 + Math.max(0, maxRounds - round) * 0.1);
+      return parseFloat(ev.toFixed(2));
+    } else if (intent.type === 'physics_debuff') {
+      let ev = 4.0 + chipPool * 0.2 + round * 0.4;
+      return parseFloat(ev.toFixed(2));
+    }
+    return 1.0;
+  }
+
+  private getEnemyPatterns(spriteName: string): any[] {
+    if (spriteName === 'decay_wheel') {
+      return [
+        { type: 'attack', value: 4, description: 'Spin slam (4 damage)' },
+        { type: 'physics_debuff', value: 0, description: 'Rusting Gaze (Doubles friction next turn)' },
+        { type: 'attack', value: 8, description: 'Heavy Slam (8 damage)' },
+        { type: 'attack', value: 5, description: 'Grinding edge (5 damage)' }
+      ];
+    } else if (spriteName === 'croupier') {
+      return [
+        { type: 'steal_chips', value: 4, description: 'Rake chips (Steals 4 chips)' },
+        { type: 'attack', value: 6, description: 'Card slice (6 damage)' },
+        { type: 'attack', value: 8, description: 'Cold gaze (8 damage)' },
+        { type: 'steal_chips', value: 3, description: 'Taxation (Steals 3 chips)' }
+      ];
+    } else if (spriteName === 'wraith') {
+      return [
+        { type: 'attack', value: 5, description: 'Shriek (5 damage)' },
+        { type: 'attack', value: 10, description: 'Soul drain (10 damage)' },
+        { type: 'attack', value: 5, description: 'Essence siphon (5 damage)' },
+        { type: 'attack', value: 12, description: 'Nightmare strike (12 damage)' }
+      ];
+    } else if (spriteName === 'dealer_claw') {
+      return [
+        { type: 'attack', value: 9, description: 'Crush (9 damage)' },
+        { type: 'steal_chips', value: 6, description: 'Greedy clutch (Steals 6 chips)' },
+        { type: 'attack', value: 15, description: 'Guillotine (15 damage)' },
+        { type: 'attack', value: 10, description: 'Rend (10 damage)' }
+      ];
+    } else if (spriteName === 'the_house') {
+      return [
+        { type: 'attack', value: 12, description: 'Roof collapse (12 damage)' },
+        { type: 'steal_chips', value: 8, description: 'Bankruptcy (Steals 8 chips)' },
+        { type: 'attack', value: 20, description: 'Crushing Debt (20 damage)' },
+        { type: 'physics_debuff', value: 0, description: 'Earthquake (Doubles friction next turn)' }
+      ];
+    } else {
+      return [
+        { type: 'attack', value: 5, description: 'Slash (5 damage)' },
+        { type: 'attack', value: 7, description: 'Gamble slash (7 damage)' },
+        { type: 'attack', value: 4, description: 'Weak poke (4 damage)' },
+        { type: 'attack', value: 8, description: 'Heavy smash (8 damage)' }
+      ];
+    }
+  }
+
+  private updateEnemyAIDecisionDev() {
+    const battle = this.engine.battleState;
+    const contentEl = this.root.querySelector('#dev-enemy-decision-content');
+    if (!contentEl) return;
+
+    if (!battle) {
+      contentEl.innerHTML = 'Active combat required.';
+      return;
+    }
+
+    const enemy = battle.enemy;
+    
+    // Run simulation to make sure we have data
+    const sim = this.engine.simulateEnemyPlay();
+    const hand = sim.hand;
+    const allPlays = sim.allPlays;
+    
+    // Retrieve selected play (optimal choice)
+    const selectedPlay = (enemy as any).lastChosenPlay || allPlays[0];
+
+    let html = '';
+    
+    // 1. Display Current Simulated Hand
+    html += '<div style="margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px dashed rgba(255,255,255,0.15);">';
+    html += '<strong>Simulated Hand:</strong> ';
+    if (!hand || hand.length === 0) {
+      html += '<span style="color: #888; font-style: italic;">No cards</span>';
+    } else {
+      html += hand.map(c => `<span class="dev-card-badge" style="background: #3e2723; padding: 2px 5px; border-radius: 3px; font-size: 10px; color: #ffca28; margin-right: 4px;">${c.name}</span>`).join(' ');
+    }
+    html += '</div>';
+
+    // 2. Display EV Calculations for potential placements
+    html += '<div style="margin-bottom: 6px;"><strong>Potential Placements & EV (Top 6):</strong></div>';
+    html += '<div style="display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto; padding-right: 4px; margin-bottom: 8px;">';
+    
+    const topPlays = allPlays.slice(0, 6);
+    topPlays.forEach((play) => {
+      const cardName = play.card ? play.card.name : 'None';
+      let betDesc = play.betType.toUpperCase();
+      if (play.betType === 'number') {
+        betDesc = `Number ${play.numberValue}`;
+      }
+      
+      let style = 'padding: 3px 6px; border-radius: 3px; background: rgba(255,255,255,0.03); font-size: 10px;';
+      let chosenBadge = '';
+      if (selectedPlay && selectedPlay.card === play.card && selectedPlay.betType === play.betType && selectedPlay.numberValue === play.numberValue) {
+        style = 'padding: 3px 6px; border-radius: 3px; background: rgba(100, 221, 23, 0.1); border-left: 2px solid #64dd17;';
+        chosenBadge = ' <span style="color: #64dd17; font-weight: bold;">[SELECTED]</span>';
+      }
+      
+      html += `
+        <div style="${style}">
+          <div><strong>Play:</strong> ${cardName} + ${betDesc} ${chosenBadge}</div>
+          <div style="color: #ffaa00; margin-top: 1px;">EV Score: <span style="color: #fff; font-weight: bold;">${play.score.toFixed(2)}</span></div>
+        </div>
+      `;
+    });
+    html += '</div>';
+
+    // 3. Display Pattern Intent loop as well
+    html += '<div style="padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.15);">';
+    html += '<strong>Intent Pattern Loop:</strong>';
+    const patterns = this.getEnemyPatterns(enemy.spriteName);
+    const currentIdx = enemy.patternIndex;
+    const prevIdx = (currentIdx - 1 + 4) % 4;
+
+    html += '<div style="margin-top: 4px; display: flex; flex-direction: column; gap: 3px;">';
+    patterns.forEach((pattern, idx) => {
+      const ev = this.calculateMoveEV(pattern, battle);
+      let badge = '';
+      let style = 'font-size: 10px;';
+      if (idx === currentIdx) {
+        badge = ' <span style="color: #64dd17; font-weight: bold;">[ACTIVE]</span>';
+        style += ' border-left: 2px solid #64dd17; padding-left: 4px; background: rgba(100, 221, 23, 0.05);';
+      } else if (idx === prevIdx) {
+        badge = ' <span style="color: #ffaa00;">[PREV]</span>';
+        style += ' border-left: 2px solid #ffaa00; padding-left: 4px; background: rgba(255, 170, 0, 0.05);';
+      }
+      
+      html += `
+        <div style="${style}">
+          <strong>Move ${idx + 1}:</strong> ${pattern.description} ${badge}
+          <span style="color: #ffaa00; margin-left: 6px;">EV: ${ev}</span>
+        </div>
+      `;
+    });
+    html += '</div></div>';
+
+    contentEl.innerHTML = html;
   }
 
   // Card Codex Screen

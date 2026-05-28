@@ -155,7 +155,7 @@ export class CardHandler {
 
       // --- PHYSICS MODIFIERS ---
       case 'FRICTION_OIL':
-        battleState.physicsModifiers.friction *= 0.5;
+        battleState.physicsModifiers.friction = Math.max(0.3, battleState.physicsModifiers.friction * 0.65);
         battleState.physicsModifiers.predictionSize = 7;
         break;
 
@@ -187,7 +187,7 @@ export class CardHandler {
         break;
 
       case 'ICE_GLAZE':
-        battleState.physicsModifiers.friction = 0.1;
+        battleState.physicsModifiers.friction = 0.3;
         battleState.physicsModifiers.predictionSize = 9;
         break;
 

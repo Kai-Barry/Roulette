@@ -50,6 +50,7 @@ export class RenderManager {
   // Stacking chips visual
   private chipMeshes: THREE.Mesh[] = [];
   private lastBetsHash = '';
+  private lastDrawPileCount = -1;
   private chipMaterials!: {
     red: THREE.MeshPhongMaterial;
     black: THREE.MeshPhongMaterial;
@@ -115,6 +116,20 @@ export class RenderManager {
   // View states
   manualView = 4; // default to overview
   activeView = 4;
+  activeHandCardIndex = 0;
+  private lastVerticalView = 4;
+  boardHorizontalOffset = 0;
+  private dragStartOffset = 0;
+  private isDraggingBoard = false;
+  private isDraggingOverview = false;
+  labelsMesh: THREE.Mesh | null = null;
+  deckMeshes: THREE.Mesh[] = [];
+  overviewPanOffsetX = 0;
+  overviewPanOffsetY = 0;
+  deckCostMesh: THREE.Mesh | null = null;
+  private lastDrawCardCost = -1;
+  hasFocusedDeckThisTurn = false;
+  lastTurnIndex = -1;
   cameraTargetPos = new THREE.Vector3(0, 1.85, 1.55);
   cameraTargetLookAt = new THREE.Vector3(0, 0.15, -0.2);
   cameraCurrentLookAt = new THREE.Vector3(0, 0.15, -0.2);
@@ -198,6 +213,76 @@ export class RenderManager {
 
   setView(viewId: number) {
     this.manualView = viewId;
+  }
+
+  handleMobileSwipe(direction: 'up' | 'down' | 'left' | 'right') {
+    if (!this.ui || !this.ui.mobileModeActive) return;
+
+    if (direction === 'up') {
+      // Inverted swipe UP goes down the hierarchy: Opponent (7) -> Opponent Board (5) -> Wheel (3/6) -> Board (2) -> Cards (1) -> Overview (4)
+      if (this.activeView === 7) {
+        this.ui.setCurrentView(5);
+        this.sound.playCardSwoosh();
+      } else if (this.activeView === 5) {
+        this.ui.setCurrentView(3); // Default to Player's Wheel
+        this.sound.playCardSwoosh();
+      } else if (this.activeView === 3 || this.activeView === 6) {
+        this.ui.setCurrentView(2);
+        this.sound.playCardSwoosh();
+      } else if (this.activeView === 2 || this.activeView === 9) {
+        this.ui.setCurrentView(1);
+        this.sound.playCardSwoosh();
+      } else if (this.activeView === 1) {
+        this.ui.setCurrentView(4);
+        this.sound.playCardSwoosh();
+      }
+    } else if (direction === 'down') {
+      // Inverted swipe DOWN goes up the hierarchy: Overview (4) -> Cards (1) -> Board (2) -> Wheel (3/6) -> Opponent Board (5) -> Opponent (7)
+      if (this.activeView === 4) {
+        this.ui.setCurrentView(1);
+        this.sound.playCardSwoosh();
+      } else if (this.activeView === 1) {
+        this.ui.setCurrentView(2);
+        this.sound.playCardSwoosh();
+      } else if (this.activeView === 2 || this.activeView === 9) {
+        this.ui.setCurrentView(3); // Default to Player's Wheel
+        this.sound.playCardSwoosh();
+      } else if (this.activeView === 3 || this.activeView === 6) {
+        this.ui.setCurrentView(5);
+        this.sound.playCardSwoosh();
+      } else if (this.activeView === 5) {
+        this.ui.setCurrentView(7);
+        this.sound.playCardSwoosh();
+      }
+    } else if (direction === 'left' || direction === 'right') {
+      if (this.activeView === 1) {
+        // In Cards view: swipe left/right scrolls through cards in hand
+        const count = this.cardVisuals.length;
+        if (count > 0) {
+          if (direction === 'left') {
+            if (this.activeHandCardIndex < count - 1) {
+              this.activeHandCardIndex++;
+              this.sound.playCardSwoosh();
+            }
+          } else {
+            if (this.activeHandCardIndex > 0) {
+              this.activeHandCardIndex--;
+              this.sound.playCardSwoosh();
+            }
+          }
+        }
+      } else if (this.activeView === 3) { // Player's Wheel
+        if (direction === 'left') {
+          this.ui.setCurrentView(6); // Go to Opponent's Wheel
+          this.sound.playCardSwoosh();
+        }
+      } else if (this.activeView === 6) { // Opponent's Wheel
+        if (direction === 'right') {
+          this.ui.setCurrentView(3); // Go to Player's Wheel
+          this.sound.playCardSwoosh();
+        }
+      }
+    }
   }
 
   getActiveWheel(): WheelConfig {
@@ -375,10 +460,10 @@ export class RenderManager {
       map: labelsTex,
       fog: false
     });
-    const labelsMesh = new THREE.Mesh(labelsGeo, labelsMat);
-    labelsMesh.rotation.x = -Math.PI / 2;
-    labelsMesh.position.set(0.53, 0.006, 0.90);
-    this.scene.add(labelsMesh);
+    this.labelsMesh = new THREE.Mesh(labelsGeo, labelsMat);
+    this.labelsMesh.rotation.x = -Math.PI / 2;
+    this.labelsMesh.position.set(0.53, 0.006, 0.90);
+    this.scene.add(this.labelsMesh);
 
     // 2e. Opponent Hand Facedown Cards & messy static chips
     const oppCardGeo = new THREE.BoxGeometry(0.22, 0.31, 0.006);
@@ -1953,6 +2038,7 @@ export class RenderManager {
     let isPressedOnShopBell = false;
     let pressedEventChoiceId: string | null = null;
     let pressedPlacedChip: THREE.Object3D | null = null;
+    let isPressedOnDrawDeck = false;
 
     const getMouseCoords = (e: PointerEvent) => {
       const rect = this.renderer.domElement.getBoundingClientRect();
@@ -1962,6 +2048,18 @@ export class RenderManager {
     };
 
     this.container.addEventListener('pointerdown', (e) => {
+      startX = e.clientX;
+      startY = e.clientY;
+
+      if (this.activeView === 4) {
+        this.isDraggingOverview = true;
+      }
+
+      if (this.ui && this.ui.mobileModeActive && this.activeView === 2) {
+        this.isDraggingBoard = true;
+        this.dragStartOffset = this.boardHorizontalOffset;
+      }
+
       const state = this.engine.runState;
       const isForge = state.gameState === 'FORGE';
       const isShop = state.gameState === 'SHOP';
@@ -1970,8 +2068,6 @@ export class RenderManager {
       if (!isForge && !isShop && !isEvent && (!this.engine.battleState || this.engine.battleState.phase !== 'betting')) {
         return; // Lock all inputs!
       }
-      startX = e.clientX;
-      startY = e.clientY;
 
       const coords = getMouseCoords(e);
       this.mouse.copy(coords);
@@ -2030,12 +2126,22 @@ export class RenderManager {
 
       // 1. Check card hits (only interactive in Cards view)
       if (this.activeView === 1) {
-        const hitCardId = this.raycastCardsAtRest();
+        let hitCardId: string | null = null;
+        if (this.ui && this.ui.mobileModeActive) {
+          const meshes = this.cardVisuals.map(cv => cv.mesh);
+          const intersects = this.raycaster.intersectObjects(meshes);
+          if (intersects.length > 0) {
+            hitCardId = intersects[0].object.userData.cardId;
+          }
+        } else {
+          hitCardId = this.raycastCardsAtRest();
+        }
         if (hitCardId) {
           pressedCardId = hitCardId;
           pressedSourceDenom = 0;
           isPressedOnBell = false;
           isPressedOnPlayedCard = false;
+          isPressedOnDrawDeck = false;
           return;
         }
       }
@@ -2049,14 +2155,15 @@ export class RenderManager {
           pressedSourceDenom = 0;
           isPressedOnBell = false;
           isPressedOnPlayedCard = true;
+          isPressedOnDrawDeck = false;
           return;
         }
       }
 
-      // 2. Check source chips stack, bell, and placed chips hits
+      // 2. Check source chips stack, bell, placed chips, and draw deck hits
       const interactableObjects: THREE.Object3D[] = [];
       this.scene.traverse((obj) => {
-        if (obj.userData && (obj.userData.isSourceStack || obj.userData.isBell || obj.userData.isPlacedChip)) {
+        if (obj.userData && (obj.userData.isSourceStack || obj.userData.isBell || obj.userData.isPlacedChip || obj.userData.isDrawDeck)) {
           interactableObjects.push(obj);
         }
       });
@@ -2070,18 +2177,28 @@ export class RenderManager {
           isPressedOnBell = false;
           isPressedOnPlayedCard = false;
           pressedPlacedChip = null;
+          isPressedOnDrawDeck = false;
         } else if (hitObj.userData.isBell) {
           isPressedOnBell = true;
           pressedSourceDenom = 0;
           pressedCardId = null;
           isPressedOnPlayedCard = false;
           pressedPlacedChip = null;
+          isPressedOnDrawDeck = false;
         } else if (hitObj.userData.isPlacedChip) {
           pressedPlacedChip = hitObj;
           pressedSourceDenom = 0;
           pressedCardId = null;
           isPressedOnBell = false;
           isPressedOnPlayedCard = false;
+          isPressedOnDrawDeck = false;
+        } else if (hitObj.userData.isDrawDeck) {
+          isPressedOnDrawDeck = true;
+          pressedSourceDenom = 0;
+          pressedCardId = null;
+          isPressedOnBell = false;
+          isPressedOnPlayedCard = false;
+          pressedPlacedChip = null;
         }
       } else {
         pressedSourceDenom = 0;
@@ -2089,12 +2206,21 @@ export class RenderManager {
         pressedCardId = null;
         isPressedOnPlayedCard = false;
         pressedPlacedChip = null;
+        isPressedOnDrawDeck = false;
       }
     });
 
     this.container.addEventListener('pointermove', (e) => {
       const coords = getMouseCoords(e);
       this.mouse.copy(coords);
+
+      if (this.ui && this.ui.mobileModeActive) {
+        if (this.isDraggingBoard && this.activeView === 2) {
+          const diffX = e.clientX - startX;
+          this.boardHorizontalOffset = Math.max(-0.45, Math.min(0.45, this.dragStartOffset - diffX * 0.0025));
+        }
+        return; // Disable 3D chip dragging in mobile mode
+      }
 
       const isForge = this.engine.runState.gameState === 'FORGE';
       if (isForge) return;
@@ -2135,11 +2261,34 @@ export class RenderManager {
     });
 
     this.container.addEventListener('pointerup', (e) => {
+      this.isDraggingBoard = false;
+      this.isDraggingOverview = false;
       const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
       const state = this.engine.runState;
       const isForge = state.gameState === 'FORGE';
       const isShop = state.gameState === 'SHOP';
       const isEvent = state.gameState === 'EVENT';
+
+      if (this.ui && this.ui.mobileModeActive && this.engine.battleState && dist > 40) {
+        // Swipe gesture detected
+        const diffX = e.clientX - startX;
+        const diffY = e.clientY - startY;
+        let direction: 'up' | 'down' | 'left' | 'right';
+        if (Math.abs(diffX) > Math.abs(diffY)) {
+          direction = diffX > 0 ? 'right' : 'left';
+        } else {
+          direction = diffY > 0 ? 'down' : 'up';
+        }
+        
+        this.handleMobileSwipe(direction);
+
+        pressedSourceDenom = 0;
+        isPressedOnBell = false;
+        pressedCardId = null;
+        isPressedOnPlayedCard = false;
+        pressedPlacedChip = null;
+        return;
+      }
 
       if (isForge) {
         if (pressedCardId && dist <= 5) {
@@ -2252,29 +2401,78 @@ export class RenderManager {
         this.isDragging = false;
         this.activeHoveredCell = null;
       } else {
-        if (dist <= 5) {
-          if (pressedCardId) {
-            if (isPressedOnPlayedCard) {
-              if (this.onPlayedCardClicked) {
-                this.onPlayedCardClicked(pressedCardId);
-              }
+        const clickThreshold = (this.ui && this.ui.mobileModeActive) ? 8 : 5;
+        if (dist <= clickThreshold) {
+          if (isPressedOnDrawDeck) {
+            const success = this.engine.buyCardDraw();
+            if (success) {
+              this.sound.playCardSwoosh();
+              this.ui.render();
             } else {
-              if (this.onCardClicked) {
-                this.onCardClicked(pressedCardId);
+              this.sound.playRouletteClick(0.3);
+            }
+          } else if (this.ui && this.ui.mobileModeActive && (this.activeView === 2 || this.activeView === 9)) {
+            // Mobile Click-to-Bet logic
+            if (pressedSourceDenom > 0) {
+              this.ui.currentBetAmount = pressedSourceDenom;
+              this.sound.playRouletteClick(0.8);
+              this.ui.render();
+            } else if (isPressedOnBell && this.onBellClicked) {
+              this.bellShakeTime = 0.15;
+              this.onBellClicked();
+            } else if (!pressedCardId && !isPressedOnBell && !pressedPlacedChip) {
+              this.raycaster.setFromCamera(this.mouse, this.camera);
+              const intersectPoint = new THREE.Vector3();
+              this.raycaster.ray.intersectPlane(this.dragPlane, intersectPoint);
+              const cell = this.getFeltCellAtPosition(intersectPoint.x, intersectPoint.z);
+              if (cell && this.engine.battleState) {
+                const type = cell.type as 'red' | 'black' | 'green' | 'number' | 'odd' | 'even' | 'gold' | 'purple' | 'cyan' | 'crimson';
+                const numberValue = cell.numberValue;
+                const actualAmount = Math.min(this.ui.currentBetAmount, this.engine.battleState.chipsPool);
+                if (actualAmount > 0) {
+                  this.engine.placeBet(type, actualAmount, numberValue);
+                  if (this.onBetPlaced) {
+                    this.onBetPlaced();
+                  }
+                } else {
+                  this.sound.playRouletteClick(0.3);
+                }
               }
+            } else if (pressedPlacedChip) {
+              const betType = pressedPlacedChip.userData.betType;
+              const numVal = pressedPlacedChip.userData.numberValue;
+              this.engine.removeBet(betType, numVal);
+              this.syncChips();
+              if (this.onBetPlaced) {
+                this.onBetPlaced();
+              }
+              this.sound.playCardSwoosh();
             }
-          } else if (isPressedOnBell && this.onBellClicked) {
-            this.bellShakeTime = 0.15;
-            this.onBellClicked();
-          } else if (pressedPlacedChip) {
-            const betType = pressedPlacedChip.userData.betType;
-            const numVal = pressedPlacedChip.userData.numberValue;
-            this.engine.removeBet(betType, numVal);
-            this.syncChips();
-            if (this.onBetPlaced) {
-              this.onBetPlaced();
+          } else {
+            // Normal desktop click logic
+            if (pressedCardId) {
+              if (isPressedOnPlayedCard) {
+                if (this.onPlayedCardClicked) {
+                  this.onPlayedCardClicked(pressedCardId);
+                }
+              } else {
+                if (this.onCardClicked) {
+                  this.onCardClicked(pressedCardId);
+                }
+              }
+            } else if (isPressedOnBell && this.onBellClicked) {
+              this.bellShakeTime = 0.15;
+              this.onBellClicked();
+            } else if (pressedPlacedChip) {
+              const betType = pressedPlacedChip.userData.betType;
+              const numVal = pressedPlacedChip.userData.numberValue;
+              this.engine.removeBet(betType, numVal);
+              this.syncChips();
+              if (this.onBetPlaced) {
+                this.onBetPlaced();
+              }
+              this.sound.playCardSwoosh();
             }
-            this.sound.playCardSwoosh();
           }
         }
       }
@@ -2284,9 +2482,12 @@ export class RenderManager {
       pressedCardId = null;
       isPressedOnPlayedCard = false;
       pressedPlacedChip = null;
+      isPressedOnDrawDeck = false;
     });
 
     this.container.addEventListener('pointerleave', () => {
+      this.isDraggingBoard = false;
+      this.isDraggingOverview = false;
       this.mouse.set(-999, -999);
       if (this.isDragging) {
         if (this.draggedDenomMesh) {
@@ -2361,11 +2562,24 @@ export class RenderManager {
     const count = this.playedCardVisuals.length;
     if (count === 0) return;
 
+    const isMobile = this.ui && this.ui.mobileModeActive;
     const spacing = 0.15;
-    const startX = -((count - 1) * spacing) / 2;
 
     this.playedCardVisuals.forEach((cv, idx) => {
-      const tx = startX + idx * spacing;
+      let tx = 0;
+      if (isMobile) {
+        // Place along either side of the centered chip stacks to prevent overlap
+        const isLeft = idx % 2 === 0;
+        const sideIdx = Math.floor(idx / 2);
+        if (isLeft) {
+          tx = -0.25 - sideIdx * spacing;
+        } else {
+          tx = 0.25 + sideIdx * spacing;
+        }
+      } else {
+        const startX = -((count - 1) * spacing) / 2;
+        tx = startX + idx * spacing;
+      }
       const ty = 0.006;
       const tz = 0.85;
 
@@ -2618,6 +2832,43 @@ export class RenderManager {
     const count = this.cardVisuals.length;
     if (count === 0) return;
 
+    const isMobileCards = this.ui && this.ui.mobileModeActive && this.activeView === 1;
+
+    if (isMobileCards) {
+      this.activeHandCardIndex = Math.min(count - 1, Math.max(0, this.activeHandCardIndex));
+      
+      this.cardVisuals.forEach((cv, idx) => {
+        const diff = idx - this.activeHandCardIndex;
+        let tx = 0;
+        let ty = 0.00; // Raised to clear bottom UI
+        let tz = -0.16;
+        let scaleVal = 0.52;
+        let ry = 0.0;
+        let rz = 0.0;
+
+        if (diff !== 0) {
+          // Show adjacent cards peeking out from the left and right behind the active card
+          if (Math.abs(diff) === 1) {
+            tx = diff * 0.12;      // Shift slightly left or right
+            ty = 0.01;             // Slightly lower
+            tz = -0.22;            // Push back on Z
+            scaleVal = 0.38;       // Scale down
+            ry = -diff * 0.15;     // Rotate slightly inwards
+          } else {
+            // Cards further away are hidden
+            scaleVal = 0.01;
+            tx = diff < 0 ? -0.5 : 0.5;
+            tz = -0.2;
+          }
+        }
+        
+        cv.targetPosition.set(tx, ty, tz);
+        cv.targetRotation.set(-0.05, ry, rz);
+        cv.mesh.userData.targetScale = new THREE.Vector3(scaleVal, scaleVal, scaleVal);
+      });
+      return;
+    }
+
     let baseLocalY = -0.12;
     let baseLocalZ = -0.24;
     
@@ -2668,6 +2919,7 @@ export class RenderManager {
 
       cv.targetPosition.set(tx, ty, tz);
       cv.targetRotation.set(rx, ry, rz);
+      cv.mesh.userData.targetScale = null;
     });
   }
 
@@ -2718,7 +2970,13 @@ export class RenderManager {
     }
 
     this.raycaster.setFromCamera(this.mouse, this.camera);
-    this.hoveredCardId = this.raycastCardsAtRest();
+    if (this.ui && this.ui.mobileModeActive) {
+      const meshes = this.cardVisuals.map(cv => cv.mesh);
+      const intersects = this.raycaster.intersectObjects(meshes);
+      this.hoveredCardId = intersects.length > 0 ? intersects[0].object.userData.cardId : null;
+    } else {
+      this.hoveredCardId = this.raycastCardsAtRest();
+    }
   }
 
   animate = (time: number) => {
@@ -3014,7 +3272,7 @@ export class RenderManager {
       // Scale the individual card meshes instead of scaling the handGroup.
       // This ensures that the horizontal spacing layout is not scaled down, preventing overlapping.
       this.cardVisuals.forEach(cv => {
-        const scale = targetScale.clone();
+        const scale = cv.mesh.userData.targetScale || targetScale;
         cv.mesh.scale.lerp(scale, 0.08);
       });
       // Keep handGroup scale always at (1, 1, 1)
@@ -3026,6 +3284,37 @@ export class RenderManager {
         this.lastBetsHash = betsHash;
         this.syncChips();
       }
+
+      // Track turn changes to reset the deck focus flag
+      if (this.engine.battleState.turn !== this.lastTurnIndex) {
+        this.lastTurnIndex = this.engine.battleState.turn;
+        this.hasFocusedDeckThisTurn = false;
+      }
+
+      // Automatic turn-start Deck zoom
+      if (this.ui && this.ui.mobileModeActive) {
+        const battle = this.engine.battleState;
+        if (battle.phase === 'betting') {
+          const canDraw = (battle.drawPile.length > 0 || battle.discardPile.length > 0) && battle.hand.length < 8;
+          if (battle.drawsThisTurn === 0 && canDraw) {
+            if (!this.hasFocusedDeckThisTurn) {
+              this.manualView = 9;
+              this.hasFocusedDeckThisTurn = true;
+            }
+          } else if (battle.drawsThisTurn > 0 && this.manualView === 9) {
+            this.manualView = 1; // Transition manualView to 1 (Cards) instead of 2
+          }
+        }
+      }
+
+      // Sync 3D draw deck stack size and draw cost
+      const drawPileCount = this.engine.battleState.drawPile.length;
+      const currentDrawCost = this.engine.getDrawCardCost();
+      if (drawPileCount !== this.lastDrawPileCount || currentDrawCost !== this.lastDrawCardCost) {
+        this.lastDrawPileCount = drawPileCount;
+        this.lastDrawCardCost = currentDrawCost;
+        this.syncDeck();
+      }
       
       // Update camera views depending on game phase and manualView selection
       let currentActiveView = this.manualView;
@@ -3036,29 +3325,67 @@ export class RenderManager {
         const isEnemy = this.engine.battleState?.activeWheelOwner === 'enemy';
         currentActiveView = isEnemy ? 6 : 3; // Force Player Wheel (3) or Enemy Wheel (6) during active spin/resolution
       }
+      if (this.ui && this.ui.isCombatIntroActive) {
+        currentActiveView = 7;
+      }
       this.activeView = currentActiveView;
 
       if (this.activeView === 1) { // Cards
         this.cameraTargetPos.set(0, 0.8, 1.25);
         this.cameraTargetLookAt.set(0, 0.25, 0.8);
       } else if (this.activeView === 2) { // Board (focus on the player's board)
-        this.cameraTargetPos.set(0.0, 1.5, 0.7);
-        this.cameraTargetLookAt.set(0.0, 0.0, 0.45);
+        const offset = (this.ui && this.ui.mobileModeActive) ? this.boardHorizontalOffset : 0.0;
+        if (this.ui && this.ui.mobileModeActive) {
+          this.cameraTargetPos.set(0.0 + offset, 1.6, 1.15); // Shift back on Z to fit board and chips stacks
+          this.cameraTargetLookAt.set(0.0 + offset, 0.0, 0.45);
+        } else {
+          this.cameraTargetPos.set(0.0, 1.5, 0.7);
+          this.cameraTargetLookAt.set(0.0, 0.0, 0.45);
+        }
       } else if (this.activeView === 3) { // Player Wheel
-        this.cameraTargetPos.set(-0.8, 1.25, -0.1);
-        this.cameraTargetLookAt.set(-0.8, 0.05, -0.75);
+        if (this.ui && this.ui.mobileModeActive) {
+          this.cameraTargetPos.set(-0.8, 1.75, 0.85); // Zoomed out
+          this.cameraTargetLookAt.set(-0.8, 0.05, -0.75);
+        } else {
+          this.cameraTargetPos.set(-0.8, 1.25, 0.35);
+          this.cameraTargetLookAt.set(-0.8, 0.05, -0.75);
+        }
       } else if (this.activeView === 6) { // Enemy Wheel
-        this.cameraTargetPos.set(0.8, 1.25, -0.1);
-        this.cameraTargetLookAt.set(0.8, 0.05, -0.75);
+        if (this.ui && this.ui.mobileModeActive) {
+          this.cameraTargetPos.set(0.8, 1.75, 0.85); // Zoomed out
+          this.cameraTargetLookAt.set(0.8, 0.05, -0.75);
+        } else {
+          this.cameraTargetPos.set(0.8, 1.25, 0.35);
+          this.cameraTargetLookAt.set(0.8, 0.05, -0.75);
+        }
       } else if (this.activeView === 5) { // Opponent Side (cinematic diagonal view of opponent and their board)
-        this.cameraTargetPos.set(-0.4, 1.25, -1.15);
-        this.cameraTargetLookAt.set(0.0, 0.1, -1.95);
+        if (this.ui && this.ui.mobileModeActive) {
+          this.cameraTargetPos.set(-0.4, 1.95, 0.05); // Zoomed out
+          this.cameraTargetLookAt.set(0.0, 0.1, -1.95);
+        } else {
+          this.cameraTargetPos.set(-0.4, 1.75, -0.45);
+          this.cameraTargetLookAt.set(0.0, 0.1, -1.95);
+        }
       } else if (this.activeView === 7) { // Opponent Himself (direct face-to-face view of opponent mask and eyes)
-        this.cameraTargetPos.set(0.0, 1.25, -1.35);
-        this.cameraTargetLookAt.set(0.0, 1.25, -3.0);
+        if (this.ui && this.ui.mobileModeActive) {
+          this.cameraTargetPos.set(0.0, 1.55, -0.45); // Zoomed out
+          this.cameraTargetLookAt.set(0.0, 1.25, -3.0);
+        } else {
+          this.cameraTargetPos.set(0.0, 1.45, -0.95);
+          this.cameraTargetLookAt.set(0.0, 1.25, -3.0);
+        }
+      } else if (this.activeView === 9) { // Draw Deck Camera View
+        const offset = (this.ui && this.ui.mobileModeActive) ? this.boardHorizontalOffset : 0.0;
+        this.cameraTargetPos.set(-0.75 + offset, 1.25, 1.0);
+        this.cameraTargetLookAt.set(-0.75 + offset, 0.05, 0.65);
       } else { // Overview (4)
-        this.cameraTargetPos.set(0, 1.9, 1.5);
-        this.cameraTargetLookAt.set(0, 0.1, -0.2);
+        if (this.ui && this.ui.mobileModeActive) {
+          this.cameraTargetPos.set(0, 2.2, 1.8);
+          this.cameraTargetLookAt.set(0, 0.1, -0.2);
+        } else {
+          this.cameraTargetPos.set(0, 1.9, 1.5);
+          this.cameraTargetLookAt.set(0, 0.1, -0.2);
+        }
       }
     } else if (isForge) {
       // Forge state camera view
@@ -3227,9 +3554,36 @@ export class RenderManager {
       }
     }
 
-    // Camera transitions
-    this.camera.position.lerp(this.cameraTargetPos, 0.08);
-    this.cameraCurrentLookAt.lerp(this.cameraTargetLookAt, 0.08);
+    // Clean up deckCostMesh if combat ended
+    if (!this.engine.battleState) {
+      if (this.deckCostMesh && this.deckCostMesh.parent) {
+        this.scene.remove(this.deckCostMesh);
+      }
+    }
+
+    // Camera transitions with smooth Overview pan/tilt
+    let targetOffsetX = 0;
+    let targetOffsetY = 0;
+    if (this.activeView === 4 && this.isDraggingOverview && this.mouse.x !== -999) {
+      targetOffsetX = this.mouse.x * 0.70;
+      targetOffsetY = this.mouse.y * 0.45;
+      this.overviewPanOffsetX += (targetOffsetX - this.overviewPanOffsetX) * 0.05;
+      this.overviewPanOffsetY += (targetOffsetY - this.overviewPanOffsetY) * 0.05;
+    } else {
+      this.overviewPanOffsetX += (0 - this.overviewPanOffsetX) * 0.05;
+      this.overviewPanOffsetY += (0 - this.overviewPanOffsetY) * 0.05;
+    }
+
+    const modifiedTargetPos = this.cameraTargetPos.clone();
+    const modifiedTargetLookAt = this.cameraTargetLookAt.clone();
+
+    modifiedTargetPos.x += this.overviewPanOffsetX;
+    modifiedTargetPos.y += this.overviewPanOffsetY;
+    modifiedTargetLookAt.x += this.overviewPanOffsetX * 0.5;
+    modifiedTargetLookAt.y += -this.overviewPanOffsetY * 0.5;
+
+    this.camera.position.lerp(modifiedTargetPos, 0.08);
+    this.cameraCurrentLookAt.lerp(modifiedTargetLookAt, 0.08);
     this.camera.lookAt(this.cameraCurrentLookAt);
 
     // Update visual card meshes
@@ -3315,35 +3669,157 @@ export class RenderManager {
     const count5 = pool >= 5 ? Math.max(1, Math.min(6, Math.floor(pool / 5))) : 0;
     const count1 = pool >= 1 ? Math.max(1, Math.min(8, pool)) : 0;
 
-    // Stack of 10s (Gold/Number material) - Left: 0.423
+    const isMobile = this.ui && this.ui.mobileModeActive;
+    const x10 = isMobile ? -0.107 : 0.423;
+    const x5  = isMobile ? 0.0 : 0.53;
+    const x1  = isMobile ? 0.107 : 0.637;
+    const zPos = isMobile ? 0.85 : 0.90;
+
+    // Stack of 10s (Gold/Number material)
     for (let j = 0; j < count10; j++) {
       const chip = new THREE.Mesh(chipGeo, this.chipMaterials.number);
-      chip.position.set(0.423, 0.005 + j * 0.007 + 0.003, 0.90);
+      chip.position.set(x10, 0.005 + j * 0.007 + 0.003, zPos);
       chip.castShadow = true;
       chip.receiveShadow = true;
       chip.userData = { isSourceStack: true, denom: 10 };
       this.scene.add(chip);
       this.chipMeshes.push(chip);
     }
-    // Stack of 5s (Green material) - Middle: 0.53
+    // Stack of 5s (Green material)
     for (let j = 0; j < count5; j++) {
       const chip = new THREE.Mesh(chipGeo, this.chipMaterials.green);
-      chip.position.set(0.53, 0.005 + j * 0.007 + 0.003, 0.90);
+      chip.position.set(x5, 0.005 + j * 0.007 + 0.003, zPos);
       chip.castShadow = true;
       chip.receiveShadow = true;
       chip.userData = { isSourceStack: true, denom: 5 };
       this.scene.add(chip);
       this.chipMeshes.push(chip);
     }
-    // Stack of 1s (Red material) - Right: 0.637
+    // Stack of 1s (Red material)
     for (let j = 0; j < count1; j++) {
       const chip = new THREE.Mesh(chipGeo, this.chipMaterials.red);
-      chip.position.set(0.637, 0.005 + j * 0.007 + 0.003, 0.90);
+      chip.position.set(x1, 0.005 + j * 0.007 + 0.003, zPos);
       chip.castShadow = true;
       chip.receiveShadow = true;
       chip.userData = { isSourceStack: true, denom: 1 };
       this.scene.add(chip);
       this.chipMeshes.push(chip);
+    }
+
+    if (this.labelsMesh) {
+      this.labelsMesh.position.set(x5, 0.006, zPos);
+    }
+    this.syncDeck();
+  }
+
+  private syncDeck() {
+    // Clear old deck meshes
+    this.deckMeshes.forEach(mesh => {
+      this.scene.remove(mesh);
+      mesh.geometry.dispose();
+    });
+    this.deckMeshes = [];
+
+    const battle = this.engine.battleState;
+    if (!battle) {
+      if (this.deckCostMesh) {
+        this.scene.remove(this.deckCostMesh);
+      }
+      return;
+    }
+
+    const cardsCount = battle.drawPile.length;
+    if (cardsCount === 0) {
+      if (this.deckCostMesh) {
+        this.scene.remove(this.deckCostMesh);
+      }
+      return; // Disappear if no cards remaining!
+    }
+
+    // Draw stack of facedown cards
+    const stackSize = Math.max(1, Math.min(6, Math.ceil(cardsCount / 3)));
+    const cardGeo = new THREE.BoxGeometry(0.22, 0.31, 0.006);
+    const cardBackTex = this.createOpponentCardBackTexture(); // facedown texture
+    const cardMat = new THREE.MeshBasicMaterial({
+      map: cardBackTex,
+      fog: false
+    });
+
+    const dx = -0.75;
+    const dz = 0.65;
+
+    for (let i = 0; i < stackSize; i++) {
+      const cardMesh = new THREE.Mesh(cardGeo, cardMat);
+      cardMesh.rotation.x = -Math.PI / 2;
+      cardMesh.rotation.z = (Math.random() - 0.5) * 0.05;
+      
+      const rx = (Math.random() - 0.5) * 0.003;
+      const rz = (Math.random() - 0.5) * 0.003;
+      
+      cardMesh.position.set(dx + rx, 0.005 + i * 0.007, dz + rz);
+      cardMesh.userData = { isDrawDeck: true };
+      
+      this.scene.add(cardMesh);
+      this.deckMeshes.push(cardMesh);
+    }
+
+    // 3D Draw Deck Cost Label
+    const cost = this.engine.getDrawCardCost();
+    const text = cost === 0 ? 'DRAW: FREE' : `DRAW: ${cost} ⚡`;
+
+    if (!this.deckCostMesh) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d')!;
+
+      // Draw onto canvas
+      ctx.fillStyle = '#2b1b14';
+      ctx.fillRect(0, 0, 512, 128);
+      ctx.strokeStyle = '#c59f51';
+      ctx.lineWidth = 6;
+      ctx.strokeRect(3, 3, 512 - 6, 128 - 6);
+
+      ctx.fillStyle = '#c59f51';
+      ctx.font = 'bold 48px "Courier Prime", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, 256, 64);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.minFilter = THREE.LinearFilter;
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        side: THREE.DoubleSide
+      });
+
+      const geom = new THREE.PlaneGeometry(0.22, 0.055);
+      const mesh = new THREE.Mesh(geom, material);
+      mesh.position.set(-0.75, 0.006, 0.82);
+      mesh.rotation.x = -Math.PI / 2;
+      
+      mesh.userData = { canvas, ctx, texture };
+      
+      this.scene.add(mesh);
+      this.deckCostMesh = mesh;
+    } else {
+      const { canvas, ctx, texture } = this.deckCostMesh.userData;
+      ctx.fillStyle = '#2b1b14';
+      ctx.fillRect(0, 0, 512, 128);
+      ctx.strokeStyle = '#c59f51';
+      ctx.lineWidth = 6;
+      ctx.strokeRect(3, 3, 512 - 6, 128 - 6);
+
+      ctx.fillStyle = '#c59f51';
+      ctx.font = 'bold 48px "Courier Prime", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, 256, 64);
+
+      texture.needsUpdate = true;
+      if (!this.deckCostMesh.parent) {
+        this.scene.add(this.deckCostMesh);
+      }
     }
   }
 

@@ -348,7 +348,7 @@ body, html {
 .map-grid-view {
   position: relative;
   width: 100%;
-  height: 680px; /* matches procedural floor layout height */
+  height: auto; /* matches procedural floor layout height */
 }
 
 .map-connections-svg {
@@ -2747,10 +2747,12 @@ body.mobile-mode.state-shop #canvas-container,
 body.mobile-mode.state-event #canvas-container,
 body.mobile-mode.state-forge #canvas-container,
 body.mobile-mode.state-map #canvas-container {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
-  height: 40vh; /* Top 40% is visualizer */
-  flex: 0 0 40vh;
+  height: 100vh;
+  flex: none;
 }
 
 body.mobile-mode.state-combat #ui-overlay,
@@ -2758,29 +2760,36 @@ body.mobile-mode.state-shop #ui-overlay,
 body.mobile-mode.state-event #ui-overlay,
 body.mobile-mode.state-forge #ui-overlay,
 body.mobile-mode.state-map #ui-overlay {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
-  height: 60vh; /* Bottom 60% is scrollable sheet */
-  flex: 1 1 60vh;
-  overflow-y: auto;
-  background: #0d0806;
-  border-top: 2px solid var(--color-gold);
-  pointer-events: auto;
+  height: 100vh;
+  flex: none;
+  overflow-y: hidden;
+  background: transparent !important;
+  border-top: none !important;
+  pointer-events: none;
 }
 
 /* Sticky top HUD inside bottom sheet */
 body.mobile-mode #hud-panel {
-  position: sticky;
-  top: 0;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  transform: none !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
   z-index: 60;
-  background: rgba(13, 8, 6, 0.98);
+  background: rgba(13, 8, 6, 0.9);
   border-bottom: 1.5px solid var(--color-gold);
-  padding: 8px 6px;
+  padding: 6px;
   display: flex !important;
   flex-wrap: wrap;
   justify-content: space-around;
   gap: 8px;
   box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+  pointer-events: auto;
 }
 
 body.mobile-mode #hud-panel .hud-item {
@@ -2806,81 +2815,86 @@ body.mobile-mode .menu-btn-group {
 }
 
 /* Combat UI adaptations */
+body.mobile-mode .combat-right,
+body.mobile-mode .view-controller-hud,
+body.mobile-mode .combat-deck-panel,
+body.mobile-mode .combat-bottom-hud {
+  display: none !important;
+}
+
 body.mobile-mode .combat-left {
-  position: relative !important;
-  top: auto !important;
-  left: auto !important;
-  width: 100% !important;
   display: block !important;
-  padding: 10px 15px 0 15px !important;
-  z-index: 10;
-  pointer-events: auto;
-}
-
-body.mobile-mode .combat-right {
-  position: relative !important;
-  top: auto !important;
-  right: auto !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  display: block !important;
-  box-shadow: none !important;
-  border: none !important;
+  position: absolute !important;
+  top: 12px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  width: 90% !important;
+  max-width: 320px !important;
+  z-index: 100 !important;
+  pointer-events: auto !important;
   background: transparent !important;
-  padding: 10px 15px !important;
-  z-index: 10;
-  pointer-events: auto;
+  border: none !important;
+  box-shadow: none !important;
 }
 
-body.mobile-mode .view-controller-hud {
-  position: relative !important;
-  bottom: auto !important;
-  left: auto !important;
+body.mobile-mode .enemy-hud {
+  display: block !important;
+  padding: 8px 12px !important;
+  background: rgba(18, 11, 8, 0.9) !important;
+  border: 1.5px solid var(--color-gold) !important;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.8) !important;
+  border-radius: 8px !important;
+  pointer-events: auto !important;
+}
+
+/* Floating elements styles for mobile */
+body.mobile-mode .scoreboard-container {
+  position: static !important;
+  transform: none !important;
   width: 100% !important;
+  max-width: none !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  z-index: auto !important;
+  pointer-events: auto !important;
+}
+
+.mobile-action-bar {
+  display: none;
+}
+
+body.mobile-mode .mobile-action-bar {
   display: flex !important;
-  overflow-x: auto !important;
-  white-space: nowrap !important;
-  padding: 8px 15px !important;
-  background: rgba(20, 12, 9, 0.95) !important;
-  margin-top: 10px;
-  gap: 6px;
-  z-index: 10;
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 92%;
+  max-width: 480px;
+  background: rgba(18, 11, 8, 0.95);
+  border: 1.5px solid var(--color-gold);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+  padding: 10px 14px;
+  border-radius: 8px;
+  z-index: 100;
   pointer-events: auto;
-  border-top: 1px solid rgba(197, 159, 81, 0.15);
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
 }
 
-body.mobile-mode .view-controller-hud .view-btn {
-  flex: 0 0 auto !important;
-  font-size: 0.85rem !important;
-  padding: 4px 10px !important;
-}
-
-body.mobile-mode .combat-deck-panel {
-  position: relative !important;
-  bottom: auto !important;
-  right: auto !important;
-  width: 100% !important;
-  display: flex !important;
-  flex-direction: row !important;
-  justify-content: space-around !important;
-  align-items: center !important;
-  padding: 12px 15px !important;
-  background: rgba(20, 12, 9, 0.95) !important;
-  margin-top: 6px;
-  z-index: 10;
-  pointer-events: auto;
-  border-top: 1px solid rgba(197, 159, 81, 0.15);
-}
-
-body.mobile-mode .draw-card-btn {
-  margin: 0 !important;
-  padding: 6px 16px !important;
-  font-size: 0.95rem !important;
-}
-
-body.mobile-mode .deck-counters-group {
-  margin: 0 !important;
-  font-size: 0.9rem !important;
+.mobile-deck-counters {
+  font-family: 'VT323', monospace;
+  color: #fff;
+  font-size: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: center;
+  min-width: 70px;
 }
 
 /* Store, Shop, Forge, Codex, Map sheets sizing */
@@ -2899,6 +2913,394 @@ body.mobile-mode .store-section {
 
 body.mobile-mode .numbers-selector-grid {
   grid-template-columns: repeat(6, 1fr) !important;
+}
+
+/* Scrollable panels for store and customizer on mobile */
+body.mobile-mode #store-panel:not(.hidden),
+body.mobile-mode #wheel-customizer-panel:not(.hidden) {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100vh !important;
+  overflow-y: auto !important;
+  background: rgba(8, 4, 3, 0.98) !important;
+  padding: 40px 12px 40px 12px !important;
+  box-sizing: border-box !important;
+  z-index: 50 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+}
+
+body.mobile-mode .store-loadout > div > div {
+  flex-direction: column !important;
+  gap: 8px !important;
+  align-items: stretch !important;
+}
+
+/* Touch Action Override to prevent mobile browser scroll-cancel behaviors during swipes */
+body.mobile-mode #canvas-container {
+  touch-action: none !important;
+}
+body.mobile-mode.state-combat #ui-overlay {
+  touch-action: none !important;
+}
+
+/* --- THEMED MAIN MENU STYLING --- */
+#menu-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 24px;
+}
+
+.menu-btn-group {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 320px;
+  align-items: stretch;
+}
+
+.menu-btn {
+  font-family: 'VT323', monospace;
+  font-size: 1.6rem;
+  padding: 10px 20px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.25s ease;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-align: center;
+  background: transparent;
+  outline: none;
+}
+
+/* Primary play button: Glowing Red */
+.menu-btn.primary {
+  background: #3e0c06;
+  border: 1.5px solid var(--color-red);
+  color: #ffcdd2;
+  box-shadow: 0 0 8px rgba(185, 30, 20, 0.3);
+  animation: pulsing-glow 2.5s infinite alternate;
+}
+
+.menu-btn.primary:hover {
+  background: #611108;
+  border-color: #ff3322;
+  box-shadow: 0 0 18px rgba(255, 30, 20, 0.7);
+  color: #fff;
+}
+
+/* Secondary menu buttons: Sleek Gold/Amber outline */
+.menu-btn.secondary {
+  border: 1.5px solid rgba(197, 159, 81, 0.4);
+  color: var(--color-gold);
+}
+
+.menu-btn.secondary:hover {
+  background: rgba(197, 159, 81, 0.1);
+  border-color: var(--color-gold);
+  box-shadow: 0 0 12px rgba(197, 159, 81, 0.45);
+}
+
+/* Selector row styling */
+.menu-selector-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 320px;
+  background: rgba(18, 11, 8, 0.45);
+  border: 1px solid rgba(90, 40, 20, 0.25);
+  border-radius: 6px;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.menu-selector-row .selector-label {
+  font-family: 'VT323', monospace;
+  font-size: 1.1rem;
+  color: #8a7a72;
+  letter-spacing: 1px;
+  text-align: center;
+}
+
+.menu-selector-row .selector-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.menu-selector-row .selector-btn {
+  flex: 1;
+  font-family: 'VT323', monospace;
+  font-size: 1.1rem;
+  padding: 6px 0;
+  background: rgba(18, 11, 8, 0.8);
+  border: 1.2px solid rgba(197, 159, 81, 0.25);
+  color: rgba(236, 224, 216, 0.6);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-radius: 4px;
+  outline: none;
+}
+
+.menu-selector-row .selector-btn:hover {
+  border-color: rgba(197, 159, 81, 0.6);
+  color: var(--color-gold);
+}
+
+.menu-selector-row .selector-btn.active {
+  background: rgba(197, 159, 81, 0.15);
+  border-color: var(--color-gold);
+  color: #fff;
+  text-shadow: 0 0 4px rgba(197, 159, 81, 0.5);
+  box-shadow: inset 0 0 4px rgba(197, 159, 81, 0.3);
+}
+
+/* === MOBILE MODE OVERRIDES === */
+
+/* Hide top HUD panel during mobile combat to avoid overlap */
+body.mobile-mode.state-combat #hud-panel {
+  display: none !important;
+}
+
+/* Mobile Map Container Layout Centering Override */
+body.mobile-mode .map-container {
+  width: 92% !important;
+  max-width: 340px !important;
+  padding: 10px 5px !important;
+  height: calc(100vh - 200px) !important;
+  margin: 0 auto !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-radius: 0 !important;
+  overflow-x: hidden !important;
+}
+
+/* Combined Top HUD Glass Panel */
+.mobile-combined-hud {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.mobile-hud-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(197, 159, 81, 0.25);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+
+.mobile-hud-stat {
+  font-family: var(--font-header);
+  font-size: 1rem;
+}
+
+.mobile-hud-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.mobile-hud-btn {
+  background: rgba(197, 159, 81, 0.1);
+  border: 1px solid var(--color-gold);
+  color: var(--color-gold);
+  font-size: 0.85rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: 'VT323', monospace;
+}
+
+.mobile-hud-middle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.mobile-hud-enemy-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  width: 100%;
+}
+
+.enemy-name-label {
+  font-family: var(--font-header);
+  font-size: 1.1rem;
+  color: #fff;
+  font-weight: bold;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.2);
+}
+
+.enemy-intent-label {
+  font-family: var(--font-header);
+  font-size: 0.9rem;
+  color: #ffaa00;
+  margin-top: 1px;
+}
+
+.intent-desc-val {
+  color: #fff;
+}
+
+.mobile-hud-bottom-row {
+  width: 100%;
+}
+
+.mobile-hud-scores {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-family: var(--font-header);
+}
+
+.mobile-score-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+.score-lbl {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.score-val {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+.mobile-score-vs {
+  font-size: 0.9rem;
+  opacity: 0.5;
+  padding: 0 10px;
+}
+
+.mobile-score-round {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding-left: 10px;
+  border-left: 1px solid rgba(255, 255, 255, 0.15);
+  margin-left: 10px;
+  font-size: 0.95rem;
+}
+
+.sd-tag {
+  color: var(--color-red);
+  font-size: 0.7rem;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+
+.mobile-hud-hp-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.mobile-hp-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hp-bar-lbl {
+  font-family: var(--font-header);
+  font-size: 0.85rem;
+  width: 50px;
+  text-align: left;
+  color: #ecdec0;
+}
+
+.player-hp-bar-container, .enemy-hp-bar-container {
+  flex: 1;
+  height: 14px;
+  position: relative;
+}
+
+.mobile-essence-display {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-family: var(--font-header);
+  font-size: 1.4rem;
+  gap: 8px;
+  flex: 1;
+}
+
+.mobile-essence-val {
+  font-weight: bold;
+  text-shadow: 0 0 8px rgba(197, 159, 81, 0.4);
+}
+
+/* Mobile Mode overrides for Shop, Event & Forge */
+body.mobile-mode #shop-panel,
+body.mobile-mode #event-panel,
+body.mobile-mode .forge-hud {
+  padding: 10px 15px !important;
+}
+
+body.mobile-mode .shop-header-panel,
+body.mobile-mode .event-header-panel,
+body.mobile-mode .forge-title-panel {
+  margin-top: 45px !important;
+  padding: 6px 12px !important;
+}
+
+body.mobile-mode .shop-header-panel h2,
+body.mobile-mode .event-header-panel h2 {
+  font-size: 1.5rem !important;
+}
+
+body.mobile-mode .forge-title-panel h1 {
+  font-size: 1.8rem !important;
+}
+
+body.mobile-mode .shop-card-desc-box,
+body.mobile-mode .event-desc-box,
+body.mobile-mode .forge-card-desc-box {
+  padding: 6px 10px !important;
+}
+
+body.mobile-mode .shop-bottom-hud .shop-card-desc-box,
+body.mobile-mode .event-bottom-hud .event-desc-box,
+body.mobile-mode .forge-bottom-hud .forge-card-desc-box {
+  max-width: 90% !important;
+  min-height: 75px !important;
+  padding: 10px !important;
+}
+
+body.mobile-mode .shop-bottom-hud .shop-desc-title,
+body.mobile-mode .event-bottom-hud .event-desc-title,
+body.mobile-mode .forge-bottom-hud .forge-desc-title {
+  font-size: 1.1rem !important;
+}
+
+body.mobile-mode .shop-bottom-hud .shop-desc-text,
+body.mobile-mode .event-bottom-hud .event-desc-text,
+body.mobile-mode .forge-bottom-hud .forge-desc-text {
+  font-size: 0.95rem !important;
+}
+
+body.mobile-mode .forge-stats-panel {
+  margin: 8px auto !important;
+  font-size: 1.0rem !important;
+}
+
+body.mobile-mode .forge-stats-multipliers {
+  flex-wrap: wrap !important;
 }
 
 

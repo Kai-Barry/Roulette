@@ -25,8 +25,8 @@ export class GameEngine {
     this.runState = this.getInitialRunState();
   }
 
-  getInitialRunState(): RunState {
-    const map = MapGenerator.generateMap(7, 3);
+  getInitialRunState(floors = 7): RunState {
+    const map = MapGenerator.generateMap(floors, 3);
     return {
       hp: BASE_MAX_HP,
       maxHp: BASE_MAX_HP,
@@ -43,8 +43,8 @@ export class GameEngine {
     };
   }
 
-  startNewRun() {
-    this.runState = this.getInitialRunState();
+  startNewRun(floors = 7) {
+    this.runState = this.getInitialRunState(floors);
     this.battleState = null;
     this.initStore();
   }
@@ -643,9 +643,9 @@ export class GameEngine {
     this.battleState.bets = [];
   }
 
-  private calculateSpinDamage(winningNum: number, color: SlotColor, betColor: BetColor): number {
+  private calculateSpinDamage(winningNum: number, color: SlotColor, betColor: BetColor, wheel?: WheelConfig): number {
     if (!this.battleState) return 0;
-    const activeWheel = this.battleState.playerWheel;
+    const activeWheel = wheel || this.battleState.playerWheel;
     const boardModifiers = this.battleState.boardModifiers;
     const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31];
 
@@ -800,29 +800,12 @@ export class GameEngine {
     const activeWheel = this.battleState.enemyWheel;
     const color = getSlotColor(winningNum, activeWheel, this.battleState.boardModifiers);
     const betColor = getBetColor(color);
-    let isWin = false;
-
-    // Check if the enemy's bet matches the settled slot
-    this.battleState.bets.forEach(bet => {
-      const effColor = getEffectiveColor(color, winningNum, activeWheel.greenNumbers);
-      if (bet.type === 'red' && effColor === 'red') {
-        isWin = true;
-      } else if (bet.type === 'black' && effColor === 'black') {
-        isWin = true;
-      } else if (bet.type === 'green') {
-        const isGreenSlot = activeWheel.greenNumbers.includes(winningNum) || effColor === 'green';
-        if (isGreenSlot) isWin = true;
-      } else if (bet.type === 'number' && bet.numberValue === winningNum) {
-        isWin = true;
-      } else if (bet.type === 'odd' && !activeWheel.greenNumbers.includes(winningNum) && winningNum % 2 !== 0) {
-        isWin = true;
-      } else if (bet.type === 'even' && !activeWheel.greenNumbers.includes(winningNum) && winningNum % 2 === 0) {
-        isWin = true;
-      }
-    });
+    const betPayout = this.calculateSpinDamage(winningNum, color, betColor, activeWheel);
+    const isWin = betPayout > 0;
 
     const intent = this.battleState.enemy.intent;
     let playerDamageTaken = 0;
+    const isPointsMode = this.runState.combatMode === 'points';
 
     if (isWin) {
       if (intent.type === 'attack') {
@@ -836,7 +819,6 @@ export class GameEngine {
         }
         
         playerDamageTaken = incomingDmg;
-        const isPointsMode = this.runState.combatMode === 'points';
         if (isPointsMode) {
           this.battleState.enemyScore = (this.battleState.enemyScore || 0) + playerDamageTaken;
         } else {
@@ -859,11 +841,15 @@ export class GameEngine {
       }
     }
 
+    if (isPointsMode && isWin) {
+      this.battleState.enemyScore = (this.battleState.enemyScore || 0) + betPayout;
+    }
+
     this.battleState.lastSpinResult = {
       number: winningNum,
       color,
       betColor,
-      damageDealt: 0,
+      damageDealt: betPayout,
       playerDamageTaken,
       betsEvaluated: this.battleState.bets.map(b => ({ ...b })),
       cardsActive: [...(this.battleState.activePlayedCards || [])],
@@ -923,6 +909,9 @@ export class GameEngine {
 
     // Next turn prep
     this.battleState.turn += 1;
+    delete (this.battleState.enemy as any).simulatedHand;
+    delete (this.battleState.enemy as any).simulatedPlays;
+    delete (this.battleState.enemy as any).lastChosenPlay;
     let chipsGained = 8;
     if ((this.battleState.boardModifiers as any).riskCapitalActive) {
       chipsGained -= 2;
@@ -1757,10 +1746,13 @@ export class GameEngine {
     return true;
   }
 
-  chooseEnemyPlay(): { betType: string; card: Card | null; numberValue?: number } {
-    if (!this.battleState) return { betType: 'red', card: null };
+
+  simulateEnemyPlay(): {
+    hand: Card[];
+    allPlays: Array<{ card: Card | null; betType: string; numberValue?: number; score: number }>;
+  } {
+    if (!this.battleState) return { hand: [], allPlays: [] };
     const enemy = this.battleState.enemy;
-    const difficulty = enemy.difficulty !== undefined ? enemy.difficulty : 0.5;
     const activeWheel = this.battleState.enemyWheel;
     
     // 1. Determine enemy card pool based on theme
@@ -1781,73 +1773,65 @@ export class GameEngine {
     }
 
     // Pick 2 random cards from their theme pool to represent their "hand" for this turn
-    const shuffled = [...themeCards].sort(() => Math.random() - 0.5);
-    const hand = shuffled.slice(0, 2).map(id => getCardById(id)).filter(Boolean) as Card[];
-    // Add "no card" option
+    let hand: Card[] = [];
+    if ((enemy as any).simulatedHand && (enemy as any).simulatedHand.length > 0) {
+      hand = (enemy as any).simulatedHand;
+    } else {
+      const shuffled = [...themeCards].sort(() => Math.random() - 0.5);
+      hand = shuffled.slice(0, 2).map(id => getCardById(id)).filter(Boolean) as Card[];
+      (enemy as any).simulatedHand = hand;
+    }
+
     const options: (Card | null)[] = [null, ...hand];
 
     // 2. Determine Risk Tolerance based on scores
     const isPointsMode = this.runState.combatMode === 'points';
     let riskTolerance = 0.1;
-    if (isPointsMode && this.battleState) {
-      const pScore = this.battleState.playerScore || 0;
-      const eScore = this.battleState.enemyScore || 0;
-      const roundsPlayed = this.battleState.turn;
-      const maxRounds = this.battleState.maxRounds || 3;
-      
+    const pScore = this.battleState.playerScore || 0;
+    const eScore = this.battleState.enemyScore || 0;
+    const roundsPlayed = this.battleState.turn;
+    const maxRounds = this.battleState.maxRounds || 3;
+    
+    if (isPointsMode) {
       if (eScore < pScore) {
-        // Losing! Scale risk tolerance
         riskTolerance = Math.min(1.0, 0.1 + (pScore - eScore) * 0.08);
       }
-      
-      // If it's the final round and they are losing, maximize risk!
       if (roundsPlayed >= maxRounds && eScore < pScore) {
         riskTolerance = 1.0;
       }
     }
 
-    // Helper to evaluate a bet and get its score
     const evaluateOption = (card: Card | null, betType: string, numberValue?: number) => {
-      // Create temporary battleState backup
       const originalPhysics = JSON.parse(JSON.stringify(this.battleState!.physicsModifiers));
       const originalBoard = JSON.parse(JSON.stringify(this.battleState!.boardModifiers));
       
-      // Apply card if any
       if (card) {
         const cardCopy = { ...card, cost: 0 };
         CardHandler.applyEffect(cardCopy, this.runState, this.battleState!);
       }
       
-      // Calculate prediction sector with current physics mods
       let tempPredictionSector: number[] = [];
       if (this.battleState!.physicsModifiers.predictionSize > 0) {
         const winningNumbers = this.getWinningNumbers(activeWheel);
         tempPredictionSector = this.runPredictionDryRun(activeWheel, winningNumbers);
       }
       
-      // Calculate EV
       const ev = this.calculateBetEV(betType, numberValue, activeWheel, tempPredictionSector, this.battleState!.boardModifiers);
       
-      // Determine Risk
       let risk = 0.1;
       if (betType === 'number') risk = 1.0;
       else if (betType === 'green') risk = 0.8;
       else if (['gold', 'purple', 'cyan', 'crimson'].includes(betType)) risk = 0.5;
       
-      // Score = EV * (1.0 - abs(risk - riskTolerance))
       const score = ev * (1.0 - Math.abs(risk - riskTolerance));
       
-      // Restore modifiers
       this.battleState!.physicsModifiers = originalPhysics;
       this.battleState!.boardModifiers = originalBoard;
       
       return score;
     };
 
-    // 3. Evaluate all plays (card + bet combination)
     const allPlays: { card: Card | null; betType: string; numberValue?: number; score: number }[] = [];
-    
-    // Standard bets to evaluate
     const baseBets = ['red', 'black', 'green', 'odd', 'even'];
     const hasColor = (c: SlotColor) => activeWheel.numbers.some(n => getSlotColor(n, activeWheel) === c);
     if (hasColor('gold')) baseBets.push('gold');
@@ -1856,13 +1840,11 @@ export class GameEngine {
     if (hasColor('crimson')) baseBets.push('crimson');
 
     options.forEach(card => {
-      // Evaluate base bets
       baseBets.forEach(bet => {
         const score = evaluateOption(card, bet);
         allPlays.push({ card, betType: bet, score });
       });
       
-      // Temporarily apply card to see predicted sector
       const originalPhysics = JSON.parse(JSON.stringify(this.battleState!.physicsModifiers));
       const originalBoard = JSON.parse(JSON.stringify(this.battleState!.boardModifiers));
       if (card) {
@@ -1876,29 +1858,38 @@ export class GameEngine {
         tempPredictionSector = this.runPredictionDryRun(activeWheel, winningNumbers);
       }
       
-      // Restore
       this.battleState!.physicsModifiers = originalPhysics;
       this.battleState!.boardModifiers = originalBoard;
       
-      // Evaluate betting on each number in predicted sector
       tempPredictionSector.forEach(num => {
         const score = evaluateOption(card, 'number', num);
         allPlays.push({ card, betType: 'number', numberValue: num, score });
       });
     });
 
-    // Sort plays by score descending
     allPlays.sort((a, b) => b.score - a.score);
 
-    // 4. Implement difficulty choice (choose optimal vs random)
-    let selectedPlay = allPlays[0]; // default to optimal
+    return { hand, allPlays };
+  }
+
+  chooseEnemyPlay(): { betType: string; card: Card | null; numberValue?: number } {
+    if (!this.battleState) return { betType: 'red', card: null };
+    const enemy = this.battleState.enemy;
+    const difficulty = enemy.difficulty !== undefined ? enemy.difficulty : 0.5;
+    
+    const { hand, allPlays } = this.simulateEnemyPlay();
+    
+    (enemy as any).simulatedHand = hand;
+    (enemy as any).simulatedPlays = allPlays;
+
+    let selectedPlay = allPlays[0];
     if (Math.random() > difficulty && allPlays.length > 1) {
-      // Choose a less optimal play
       const randomIdx = Math.floor(Math.random() * Math.min(10, allPlays.length));
       selectedPlay = allPlays[randomIdx];
     }
+    
+    (enemy as any).lastChosenPlay = selectedPlay;
 
-    // 5. Apply the selected card to battleState immediately
     if (selectedPlay.card) {
       this.applyEnemyCard(selectedPlay.card);
       enemy.activeCard = selectedPlay.card;

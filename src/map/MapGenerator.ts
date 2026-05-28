@@ -31,9 +31,9 @@ export class MapGenerator {
         Array.from(activeLanes).sort().forEach(lane => {
           let type: NodeType = 'combat';
           
-          if (floor === 3) {
+          if (floor % 4 === 3 && floor < totalFloors - 2) {
             type = 'elite';
-          } else if (floor === 5) {
+          } else if (floor % 4 === 1 && floor > 1 && floor < totalFloors - 1) {
             type = 'shop';
           } else if (floor > 0) {
             const roll = Math.random();
