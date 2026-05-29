@@ -141,6 +141,7 @@ export class RoulettePhysics {
   wheelNumbers: number[] = WHEEL_NUMBERS;
   slotCount = 37;
   greenNumbers: number[] = [0];
+  random: () => number = Math.random;
 
   constructor() {
     this.reset(
@@ -183,17 +184,29 @@ export class RoulettePhysics {
     this.ballRadius = this.R_OUTER;
     this.ballHeight = 0.15;
     
-    // Inject wheel and ball in opposite directions
-    // Speed scales with mods.spinSpeed
-    const baseWheelSpeed = seedWheelSpeed !== undefined ? seedWheelSpeed : (2.0 + Math.random() * 1.5);
-    const baseBallSpeed = seedBallSpeed !== undefined ? seedBallSpeed : (-10.0 - Math.random() * 5.0); // Negative means opposite direction
+    // Resolve initial seeds (using Math.random if undefined, but ensuring stable seeded generator)
+    const wAngle = seedWheelAngle !== undefined ? seedWheelAngle : (Math.random() * Math.PI * 2);
+    const bAngle = seedBallAngle !== undefined ? seedBallAngle : (Math.random() * Math.PI * 2);
+    const wSpeed = seedWheelSpeed !== undefined ? seedWheelSpeed : (2.0 + Math.random() * 1.5);
+    const bSpeed = seedBallSpeed !== undefined ? seedBallSpeed : (-10.0 - Math.random() * 5.0);
 
-    this.wheelOmega = baseWheelSpeed * mods.spinSpeed;
-    this.ballOmega = baseBallSpeed / Math.sqrt(mods.ballMass);
-    
-    // Randomize or seed initial positions
-    this.wheelAngle = seedWheelAngle !== undefined ? seedWheelAngle : (Math.random() * Math.PI * 2);
-    this.ballAngle = seedBallAngle !== undefined ? seedBallAngle : (Math.random() * Math.PI * 2);
+    const seedAngleVal = wAngle + bAngle * 100;
+    const seedSpeedVal = wSpeed * 1000 + bSpeed * 100000;
+    const combinedVal = Math.abs(seedAngleVal + seedSpeedVal);
+    let seed = Math.floor(combinedVal) % 2147483647;
+    if (seed <= 0) seed = 12345;
+
+    this.random = () => {
+      let t = seed += 0x6D2B79F5;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+
+    this.wheelOmega = wSpeed * mods.spinSpeed;
+    this.ballOmega = bSpeed / Math.sqrt(mods.ballMass);
+    this.wheelAngle = wAngle;
+    this.ballAngle = bAngle;
 
     // Handle Bias (cheating physics)
     this.biasTargetAngle = -1;
@@ -207,7 +220,7 @@ export class RoulettePhysics {
 
     if (mods.targetZoneBias > 0 && filteredWinningTargets.length > 0) {
       // Pick one of the winning targets and find its slot position
-      const targetNum = filteredWinningTargets[Math.floor(Math.random() * filteredWinningTargets.length)];
+      const targetNum = filteredWinningTargets[Math.floor(this.random() * filteredWinningTargets.length)];
       const slotIdx = this.wheelNumbers.indexOf(targetNum);
       if (slotIdx >= 0) {
         // Target angle on the wheel: index * (2pi/slotCount)
@@ -386,7 +399,7 @@ export class RoulettePhysics {
           // Re-calculate velocities
           const bounceEnergy = (Math.abs(this.ballOmega) * 0.35 + 0.5) / Math.sqrt(this.mods.ballMass);
           this.ballRadVel = normalX * bounceEnergy * 1.2;
-          this.ballOmega = -this.ballOmega * 0.45 + (Math.random() - 0.5) * this.mods.bounceRandomness * 18.0;
+          this.ballOmega = -this.ballOmega * 0.45 + (this.random() - 0.5) * this.mods.bounceRandomness * 18.0;
           this.ballHeightVel = bounceEnergy * 0.8; // pop up!
           
           break;
@@ -416,7 +429,7 @@ export class RoulettePhysics {
         const restitution = 0.4 / Math.sqrt(this.mods.ballMass);
         
         // Bounce angular speed
-        this.ballOmega = this.wheelOmega - relOmega * restitution + (Math.random() - 0.5) * this.mods.bounceRandomness * 8.0;
+        this.ballOmega = this.wheelOmega - relOmega * restitution + (this.random() - 0.5) * this.mods.bounceRandomness * 8.0;
         
         // Pop ball up and out
         this.ballHeightVel = Math.max(0.1, Math.abs(relOmega) * 0.15);

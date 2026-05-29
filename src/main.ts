@@ -10,9 +10,22 @@ document.addEventListener('DOMContentLoaded', () => {
   // 1. Initialize core logic and audio systems
   const engine = new GameEngine();
   const sound = new SoundManager();
+  sound.loadTitleMusic();
   
   // 2. Initialize DOM UI manager (this builds the overlays)
   const ui = new GameUI(engine, sound, appContainer);
+  
+  const resumeAudio = () => {
+    if (engine.runState.gameState === 'MENU') {
+      sound.playTitleMusic();
+    } else {
+      (sound as any).initContext();
+    }
+    document.removeEventListener('pointerdown', resumeAudio);
+    document.removeEventListener('keydown', resumeAudio);
+  };
+  document.addEventListener('pointerdown', resumeAudio);
+  document.addEventListener('keydown', resumeAudio);
   
   // 3. Initialize WebGL 3D renderer inside the canvas container
   const canvasContainer = document.querySelector<HTMLDivElement>('#canvas-container')!;

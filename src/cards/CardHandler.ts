@@ -20,11 +20,9 @@ export class CardHandler {
     if (!battleState.boardModifiers.cursedZones) battleState.boardModifiers.cursedZones = [];
     if (!battleState.boardModifiers.chipMines) battleState.boardModifiers.chipMines = {};
     if (!battleState.boardModifiers.lifeFountains) battleState.boardModifiers.lifeFountains = {};
-    if (!battleState.boardModifiers.shieldGenerators) battleState.boardModifiers.shieldGenerators = {};
     if (!battleState.boardModifiers.dangerZones) battleState.boardModifiers.dangerZones = {};
     if (!battleState.boardModifiers.goldFoils) battleState.boardModifiers.goldFoils = [];
     if (!battleState.boardModifiers.copperPlates) battleState.boardModifiers.copperPlates = [];
-    if (!battleState.boardModifiers.voidHoles) battleState.boardModifiers.voidHoles = [];
     if (!battleState.boardModifiers.mirrorSlots) battleState.boardModifiers.mirrorSlots = {};
 
     switch (card.effectId) {
@@ -39,6 +37,8 @@ export class CardHandler {
 
       case 'GREEN_GREED':
         battleState.boardModifiers.payoutMultipliers.green = 50;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['greenMultiplier'] = 3;
         break;
 
       case 'LUCKY_SEVEN':
@@ -48,12 +48,15 @@ export class CardHandler {
       case 'SCARLET_OVERFLOW':
         battleState.boardModifiers.payoutMultipliers.red = 3.0;
         battleState.boardModifiers.payoutMultipliers.black = 1.0;
-        // The rest of turn count/spins is handled at resolveSpin
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['scarletOverflow'] = 5;
         break;
 
       case 'ONYX_ECLIPSE':
         battleState.boardModifiers.payoutMultipliers.black = 3.0;
         battleState.boardModifiers.payoutMultipliers.red = 1.0;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['onyxEclipse'] = 5;
         break;
 
 
@@ -64,34 +67,50 @@ export class CardHandler {
 
       case 'PRIME_TARGET':
         battleState.boardModifiers.primeMultiplier = 3.5;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['primeMultiplier'] = 3;
         break;
 
       case 'HIGH_ROLLER':
         battleState.boardModifiers.highMultiplier = 2.5;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['highMultiplier'] = 3;
         break;
 
       case 'LOW_SWEEP':
         battleState.boardModifiers.lowMultiplier = 2.5;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['lowMultiplier'] = 3;
         break;
 
       case 'EVEN_SPLIT':
         battleState.boardModifiers.payoutMultipliers.even = 2.5;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['evenMultiplier'] = 3;
         break;
 
       case 'ODD_ADVANTAGE':
         battleState.boardModifiers.payoutMultipliers.odd = 2.5;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['oddMultiplier'] = 3;
         break;
 
       case 'FIRST_DOZEN':
         battleState.boardModifiers.dozenMultipliers[1] = 3.5;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['dozenMultiplier_1'] = 3;
         break;
 
       case 'SECOND_DOZEN':
         battleState.boardModifiers.dozenMultipliers[2] = 3.5;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['dozenMultiplier_2'] = 3;
         break;
 
       case 'THIRD_DOZEN':
         battleState.boardModifiers.dozenMultipliers[3] = 3.5;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['dozenMultiplier_3'] = 3;
         break;
 
       case 'JACKPOT_TRIO':
@@ -108,6 +127,8 @@ export class CardHandler {
 
       case 'SINGLE_OUT':
         battleState.boardModifiers.payoutMultipliers.number = 40.0;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['singleOutMultiplier'] = 3;
         break;
 
       case 'DOUBLE_PAYOUT':
@@ -116,14 +137,20 @@ export class CardHandler {
 
       case 'COLUMN_WAVE':
         battleState.boardModifiers.columnMultipliers[1] = 4.0;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['columnMultiplier_1'] = 3;
         break;
 
       case 'COLUMN_DRIFT':
         battleState.boardModifiers.columnMultipliers[2] = 4.0;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['columnMultiplier_2'] = 3;
         break;
 
       case 'COLUMN_APEX':
         battleState.boardModifiers.columnMultipliers[3] = 4.0;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['columnMultiplier_3'] = 3;
         break;
 
       case 'GREEN_RIPPLE':
@@ -136,6 +163,8 @@ export class CardHandler {
 
       case 'LUCKY_INDEX':
         battleState.boardModifiers.globalMultiplier = 1.2;
+        if (!battleState.boardModifiers.tempDurations) battleState.boardModifiers.tempDurations = {};
+        battleState.boardModifiers.tempDurations['globalMultiplier'] = 3;
         break;
 
       case 'RED_STREAK':
@@ -245,11 +274,29 @@ export class CardHandler {
 
       case 'EAGLE_EYE':
         battleState.physicsModifiers.predictionSize = 1;
+        if (battleState.drawPile.length === 0 && battleState.discardPile.length > 0) {
+          battleState.drawPile = [...battleState.discardPile].sort(() => Math.random() - 0.5);
+          battleState.discardPile = [];
+        }
+        if (battleState.drawPile.length > 0) {
+          battleState.hand.push(battleState.drawPile.pop()!);
+        }
         break;
 
       case 'OMNISCIENCE':
         battleState.physicsModifiers.predictionSize = 1;
         (battleState.boardModifiers as any).omniscienceDamageMult = 3.0;
+        // Secondary fallback utility: Gain +3 actions (12 Essence) and draw 2 cards
+        battleState.chipsPool += 12;
+        for (let d = 0; d < 2; d++) {
+          if (battleState.drawPile.length === 0 && battleState.discardPile.length > 0) {
+            battleState.drawPile = [...battleState.discardPile].sort(() => Math.random() - 0.5);
+            battleState.discardPile = [];
+          }
+          if (battleState.drawPile.length > 0) {
+            battleState.hand.push(battleState.drawPile.pop()!);
+          }
+        }
         break;
 
       case 'BROAD_VISION':
@@ -359,11 +406,19 @@ export class CardHandler {
           }
           card.markedSlots = slots;
         }
+        if (!battleState.boardModifiers.bloodSpillSlots) {
+          battleState.boardModifiers.bloodSpillSlots = [];
+        }
         card.markedSlots.forEach(slot => {
           if (!battleState.boardModifiers.convertNumbersToRed.includes(slot)) {
             battleState.boardModifiers.convertNumbersToRed.push(slot);
+            battleState.boardModifiers.bloodSpillSlots!.push(slot);
           }
         });
+        if (!battleState.boardModifiers.tempDurations) {
+          battleState.boardModifiers.tempDurations = {};
+        }
+        battleState.boardModifiers.tempDurations['bloodSpill'] = 5;
         break;
 
       case 'NUMBER_DUPLICATE':
@@ -403,14 +458,6 @@ export class CardHandler {
         battleState.boardModifiers.chipMines![card.markedSlots[0]] = 15;
         break;
 
-
-
-      case 'SHIELD_GENERATOR':
-        if (!card.markedSlots || card.markedSlots.length === 0) {
-          card.markedSlots = [Math.floor(Math.random() * 37)];
-        }
-        battleState.boardModifiers.shieldGenerators![card.markedSlots[0]] = 12;
-        break;
 
       case 'ZERO_ECLIPSE':
         (battleState.boardModifiers as any).zeroEclipseActive = true;
@@ -456,12 +503,6 @@ export class CardHandler {
         battleState.boardModifiers.copperPlates.push(...card.markedSlots);
         break;
 
-      case 'VOID_HOLE':
-        if (!card.markedSlots || card.markedSlots.length === 0) {
-          card.markedSlots = [Math.floor(Math.random() * 37)];
-        }
-        battleState.boardModifiers.voidHoles.push(...card.markedSlots);
-        break;
 
 
       // --- UTILITY MODIFIERS ---
@@ -484,9 +525,6 @@ export class CardHandler {
         battleState.physicsModifiers.predictionSize = 7;
         break;
 
-      case 'SCRAP_SHIELD':
-        battleState.playerBlock += 5;
-        break;
 
       case 'ESSENCE_RECYCLE':
         if (battleState.hand.length > 0) {
@@ -522,18 +560,6 @@ export class CardHandler {
         battleState.chipsPool += Math.floor(battleState.chipsPool * 0.5);
         break;
 
-      case 'STEEL_BARRICADE':
-        battleState.playerBlock += 12;
-        break;
-
-      case 'FORTRESS_SHIELD':
-        battleState.playerBlock += 60;
-        break;
-
-      case 'AEGIS_WARD':
-        battleState.playerBlock += 8;
-        // Aegis reflection check is handled in resolveEnemySpin
-        break;
 
 
 

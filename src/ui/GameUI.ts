@@ -282,6 +282,12 @@ export class GameUI {
     }
 
     this.setupLayout();
+    
+    // Periodic developer panel monitor updates (e.g. for audio diagnostics)
+    setInterval(() => {
+      this.updateSoundVisualizerDev();
+    }, 250);
+
     this.render();
   }
 
@@ -348,6 +354,9 @@ export class GameUI {
                   <option value="damage">HP Damage</option>
                 </select>
               </div>
+              <div class="dev-row" style="margin-bottom: 6px;">
+                <button id="dev-start-sandbox-btn" class="btn" style="border-color: #00ff64; color: #00ff64; width: 100%;">Start Sandbox Combat</button>
+              </div>
               <div class="dev-row">
                 <button id="dev-kill-enemy" class="btn">Finish Opponent</button>
               </div>
@@ -362,12 +371,55 @@ export class GameUI {
                 <button id="dev-draw-card-1" class="btn">Draw Card</button>
                 <button id="dev-draw-card-4" class="btn">Draw 4</button>
               </div>
-              <div class="dev-group-title" style="margin-top: 4px;">Spawn Card In Hand</div>
-              <div class="dev-row">
-                <select id="dev-spawn-card-select" class="dev-select">
-                  ${Object.keys(CARD_DATABASE).map(key => `<option value="${key}">${CARD_DATABASE[key].name}</option>`).join('')}
+            </div>
+
+            <!-- Group: CARD SANDBOX TOOLS -->
+            <div class="dev-group">
+              <div class="dev-group-title">Card Sandbox Filter/Sort</div>
+              <div class="dev-row" style="margin-bottom: 4px;">
+                <input type="text" id="dev-card-search" placeholder="Search cards..." class="dev-select" style="flex: 1; font-size: 11px; padding: 2px 4px; height: 24px; background: rgba(0,0,0,0.5); border: 1px solid rgba(197,159,81,0.3); color: #fff;" />
+              </div>
+              <div class="dev-row" style="gap: 4px; margin-bottom: 4px;">
+                <select id="dev-card-filter-type" class="dev-select" style="flex: 1; font-size: 11px; height: 24px;">
+                  <option value="all">All Types</option>
+                  <option value="physics">Physics</option>
+                  <option value="board">Board</option>
+                  <option value="payout">Payout</option>
+                  <option value="utility">Utility</option>
                 </select>
-                <button id="dev-spawn-card-btn" class="btn" style="flex: 0 0 70px;">Spawn</button>
+                <select id="dev-card-filter-rarity" class="dev-select" style="flex: 1; font-size: 11px; height: 24px;">
+                  <option value="all">All Rarities</option>
+                  <option value="common">Common</option>
+                  <option value="uncommon">Uncommon</option>
+                  <option value="rare">Rare</option>
+                  <option value="legendary">Legendary</option>
+                </select>
+              </div>
+              <div class="dev-row" style="margin-bottom: 6px;">
+                <select id="dev-card-sort" class="dev-select" style="flex: 1; font-size: 11px; height: 24px;">
+                  <option value="default" selected>Sort: Type -> Rarity -> Cost</option>
+                  <option value="name">Sort: Name (A-Z)</option>
+                  <option value="cost-asc">Sort: Cost (Low-High)</option>
+                  <option value="cost-desc">Sort: Cost (High-Low)</option>
+                  <option value="rarity">Sort: Rarity</option>
+                  <option value="type">Sort: Type</option>
+                </select>
+              </div>
+              
+              <div class="dev-group-title" style="margin-top: 4px;">Spawn Card In Hand</div>
+              <div class="dev-row" style="margin-bottom: 6px;">
+                <select id="dev-spawn-card-select" class="dev-select" style="flex: 1; font-size: 11px; height: 24px;">
+                  <!-- Populated dynamically -->
+                </select>
+                <button id="dev-spawn-card-btn" class="btn" style="flex: 0 0 55px; font-size: 11px; height: 24px; padding: 0;">Spawn</button>
+              </div>
+
+              <div class="dev-group-title" style="margin-top: 4px;">Add Card to Deck</div>
+              <div class="dev-row">
+                <select id="dev-add-deck-select" class="dev-select" style="flex: 1; font-size: 11px; height: 24px;">
+                  <!-- Populated dynamically -->
+                </select>
+                <button id="dev-add-deck-btn" class="btn" style="flex: 0 0 55px; font-size: 11px; height: 24px; padding: 0;">Add</button>
               </div>
             </div>
 
@@ -380,13 +432,6 @@ export class GameUI {
               <div class="dev-row">
                 <button id="dev-full-heal" class="btn">Full Heal</button>
                 <button id="dev-set-hp-1" class="btn">Set HP to 1</button>
-              </div>
-              <div class="dev-group-title" style="margin-top: 4px;">Add Card to Deck</div>
-              <div class="dev-row">
-                <select id="dev-add-deck-select" class="dev-select">
-                  ${Object.keys(CARD_DATABASE).map(key => `<option value="${key}">${CARD_DATABASE[key].name}</option>`).join('')}
-                </select>
-                <button id="dev-add-deck-btn" class="btn" style="flex: 0 0 70px;">Add</button>
               </div>
               <div class="dev-group-title" style="margin-top: 4px;">Inject Slot Color</div>
               <div class="dev-row">
@@ -426,6 +471,14 @@ export class GameUI {
               <div class="dev-group-title">Enemy Decision Process</div>
               <div id="dev-enemy-decision-content" style="font-size: 11px; color: #ece0d8; line-height: 1.4;">
                 Active combat required.
+              </div>
+            </div>
+
+            <!-- Group: SOUND MANAGER VISUALIZER -->
+            <div class="dev-group" id="dev-sound-visualizer-group">
+              <div class="dev-group-title">Audio & Stems Monitor</div>
+              <div id="dev-sound-visualizer-content" style="font-size: 11px; color: #ece0d8; line-height: 1.4; font-family: monospace;">
+                Initializing...
               </div>
             </div>
           </div>
@@ -934,6 +987,7 @@ export class GameUI {
     // Draw Card button
     const drawCardBtn = this.root.querySelector('#draw-card-btn');
     drawCardBtn?.addEventListener('click', () => {
+      if (this.currentView === 4) return;
       if (this.engine.buyCardDraw()) {
         this.sound.playDraw();
         this.render();
@@ -1140,6 +1194,32 @@ export class GameUI {
     });
 
     // Dev tools button bindings
+    this.root.querySelector('#dev-start-sandbox-btn')?.addEventListener('click', () => {
+      this.sound.playBell();
+      this.engine.devStartTestCombat();
+      this.setCurrentView(2); // Go to Board View directly
+      this.render();
+      window.dispatchEvent(new Event('resize'));
+    });
+
+    // Bind card filter/sort events
+    const searchInput = this.root.querySelector('#dev-card-search') as HTMLInputElement;
+    const typeSelect = this.root.querySelector('#dev-card-filter-type') as HTMLSelectElement;
+    const raritySelect = this.root.querySelector('#dev-card-filter-rarity') as HTMLSelectElement;
+    const sortSelect = this.root.querySelector('#dev-card-sort') as HTMLSelectElement;
+
+    const handleFilterChange = () => {
+      this.updateDevCardOptions();
+    };
+
+    searchInput?.addEventListener('input', handleFilterChange);
+    typeSelect?.addEventListener('change', handleFilterChange);
+    raritySelect?.addEventListener('change', handleFilterChange);
+    sortSelect?.addEventListener('change', handleFilterChange);
+
+    // Initial update of card options in dropdowns
+    this.updateDevCardOptions();
+
     this.root.querySelector('#dev-kill-enemy')?.addEventListener('click', () => {
       this.sound.playBell();
       this.engine.devDefeatEnemy();
@@ -1292,10 +1372,11 @@ export class GameUI {
           else if (this.currentView === 2) nextView = (this.lastWheelView === 6 ? 6 : 3);
           else if (this.currentView === 3 || this.currentView === 6) nextView = 5;
           else if (this.currentView === 5) nextView = 7;
-          else if (this.currentView === 7) nextView = 4;
           
-          this.sound.playCardSwoosh();
-          this.setCurrentView(nextView);
+          if (nextView !== this.currentView) {
+            this.sound.playCardSwoosh();
+            this.setCurrentView(nextView);
+          }
         } else if (key === 's') {
           let nextView = this.currentView;
           if (this.currentView === 7) nextView = 5;
@@ -1303,23 +1384,38 @@ export class GameUI {
           else if (this.currentView === 3 || this.currentView === 6) nextView = 2;
           else if (this.currentView === 2) nextView = 1;
           else if (this.currentView === 1) nextView = 4;
-          else if (this.currentView === 4) nextView = 7;
           
-          this.sound.playCardSwoosh();
-          this.setCurrentView(nextView);
+          if (nextView !== this.currentView) {
+            this.sound.playCardSwoosh();
+            this.setCurrentView(nextView);
+          }
         } else if (key === 'a') {
-          if (this.currentView === 1 && this.renderer) {
-            const count = this.renderer.cardVisuals.length;
-            if (count > 0) {
-              this.renderer.activeHandCardIndex = Math.max(0, this.renderer.activeHandCardIndex - 1);
+          if (!this.mobileModeActive) {
+            if (this.currentView === 1 || this.currentView === 2) {
+              (this as any).lastPreDeckView = this.currentView;
+              this.setCurrentView(9);
+              this.sound.playCardSwoosh();
+            } else if (this.currentView === 3 || this.currentView === 6) {
+              this.setCurrentView(this.currentView === 3 ? 6 : 3);
               this.sound.playCardSwoosh();
             }
-          } else if (this.currentView === 3 || this.currentView === 6) {
-            this.setCurrentView(this.currentView === 3 ? 6 : 3);
-            this.sound.playCardSwoosh();
+          } else {
+            if (this.currentView === 1 && this.renderer) {
+              const count = this.renderer.cardVisuals.length;
+              if (count > 0) {
+                this.renderer.activeHandCardIndex = Math.max(0, this.renderer.activeHandCardIndex - 1);
+                this.sound.playCardSwoosh();
+              }
+            } else if (this.currentView === 3 || this.currentView === 6) {
+              this.setCurrentView(this.currentView === 3 ? 6 : 3);
+              this.sound.playCardSwoosh();
+            }
           }
         } else if (key === 'd') {
-          if (this.currentView === 1 && this.renderer) {
+          if (!this.mobileModeActive && this.currentView === 9) {
+            this.setCurrentView((this as any).lastPreDeckView || 2);
+            this.sound.playCardSwoosh();
+          } else if (this.currentView === 1 && this.renderer) {
             const count = this.renderer.cardVisuals.length;
             if (count > 0) {
               this.renderer.activeHandCardIndex = Math.min(count - 1, this.renderer.activeHandCardIndex + 1);
@@ -1349,6 +1445,7 @@ export class GameUI {
 
       // Clear bets on 'C'
       if (e.key === 'c' || e.key === 'C') {
+        if (this.currentView === 4) return;
         if (this.engine.battleState && !this.isSpinning) {
           this.sound.playCardSwoosh();
           this.engine.clearBets();
@@ -1517,6 +1614,70 @@ export class GameUI {
     });
   }
 
+  private updateDevCardOptions() {
+    const searchInput = this.root.querySelector('#dev-card-search') as HTMLInputElement;
+    const typeSelect = this.root.querySelector('#dev-card-filter-type') as HTMLSelectElement;
+    const raritySelect = this.root.querySelector('#dev-card-filter-rarity') as HTMLSelectElement;
+    const sortSelect = this.root.querySelector('#dev-card-sort') as HTMLSelectElement;
+    
+    const deckSelect = this.root.querySelector('#dev-add-deck-select') as HTMLSelectElement;
+    const spawnSelect = this.root.querySelector('#dev-spawn-card-select') as HTMLSelectElement;
+
+    const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    const typeFilter = typeSelect ? typeSelect.value : 'all';
+    const rarityFilter = raritySelect ? raritySelect.value : 'all';
+    const sortBy = sortSelect ? sortSelect.value : 'default';
+
+    let cardKeys = Object.keys(CARD_DATABASE);
+
+    cardKeys = cardKeys.filter(key => {
+      const card = CARD_DATABASE[key];
+      if (typeFilter !== 'all' && card.type !== typeFilter) return false;
+      if (rarityFilter !== 'all' && card.rarity !== rarityFilter) return false;
+      if (query) {
+        const nameMatch = card.name.toLowerCase().includes(query);
+        const descMatch = card.description.toLowerCase().includes(query);
+        const keyMatch = key.toLowerCase().includes(query);
+        if (!nameMatch && !descMatch && !keyMatch) return false;
+      }
+      return true;
+    });
+
+    cardKeys.sort((aKey, bKey) => {
+      const a = CARD_DATABASE[aKey];
+      const b = CARD_DATABASE[bKey];
+
+      if (sortBy === 'cost-asc') {
+        return a.cost - b.cost;
+      } else if (sortBy === 'cost-desc') {
+        return b.cost - a.cost;
+      } else if (sortBy === 'rarity') {
+        const rarities: Record<string, number> = { 'common': 0, 'uncommon': 1, 'rare': 2, 'legendary': 3 };
+        return (rarities[a.rarity] ?? 0) - (rarities[b.rarity] ?? 0);
+      } else if (sortBy === 'type') {
+        return a.type.localeCompare(b.type);
+      } else if (sortBy === 'default') {
+        const typeOrders: Record<string, number> = { 'physics': 0, 'board': 1, 'payout': 2, 'utility': 3 };
+        const rarityOrders: Record<string, number> = { 'common': 0, 'uncommon': 1, 'rare': 2, 'legendary': 3 };
+        const typeDiff = (typeOrders[a.type] ?? 0) - (typeOrders[b.type] ?? 0);
+        if (typeDiff !== 0) return typeDiff;
+        const rarityDiff = (rarityOrders[a.rarity] ?? 0) - (rarityOrders[b.rarity] ?? 0);
+        if (rarityDiff !== 0) return rarityDiff;
+        return a.cost - b.cost;
+      } else {
+        return a.name.localeCompare(b.name);
+      }
+    });
+
+    const optionsHtml = cardKeys.map(key => {
+      const card = CARD_DATABASE[key];
+      return `<option value="${key}">${card.name} [Cost: ${card.cost}⚡, ${card.rarity.substring(0,4)}, ${card.type.substring(0,4)}]</option>`;
+    }).join('');
+
+    if (deckSelect) deckSelect.innerHTML = optionsHtml;
+    if (spawnSelect) spawnSelect.innerHTML = optionsHtml;
+  }
+
   private placeEngineBet(type: 'red' | 'black' | 'green' | 'number' | 'odd' | 'even' | 'gold' | 'purple' | 'cyan' | 'crimson', amount: number, numberValue?: number) {
     if (!this.engine.battleState || this.engine.battleState.phase !== 'betting') return;
     
@@ -1594,6 +1755,17 @@ export class GameUI {
   private triggerOpponentTurnSequence() {
     const battle = this.engine.battleState;
     if (!battle) return;
+
+    if ((battle as any).isTestCombatMode) {
+      this.spinMessage = "TEST MODE: SKIPPING OPPONENT TURN";
+      this.render();
+      setTimeout(() => {
+        this.engine.resolveEnemyTurn();
+        this.setCurrentView(2); // Go back to Board View (2) directly
+        this.render();
+      }, 1200);
+      return;
+    }
 
     if (battle.boardModifiers.enemyStunTurns && battle.boardModifiers.enemyStunTurns > 0) {
       battle.boardModifiers.enemyStunTurns--;
@@ -1914,6 +2086,7 @@ export class GameUI {
   }
 
   bellTrigger() {
+    if (this.currentView === 4) return;
     if (!this.engine.battleState || this.engine.battleState.phase !== 'betting' || this.isSpinning) return;
     
     if (this.engine.battleState.bets.length > 0) {
@@ -1922,7 +2095,14 @@ export class GameUI {
         this.triggerSpin();
       }, 150); // slight delay to feel the bell strike before spinning!
     } else {
-      this.sound.playRouletteClick(0.3);
+      this.sound.playBell();
+      this.spinMessage = "PASSING TURN... (NO BETS PLACED)";
+      this.engine.passPlayerTurn();
+      this.render();
+      
+      setTimeout(() => {
+        this.showSpinReport(false);
+      }, 1200);
     }
   }
 
@@ -1939,8 +2119,9 @@ export class GameUI {
     }
     document.body.classList.add(`state-${state.gameState.toLowerCase()}`);
 
-    // Handle encounter-specific procedural music
+    // Handle encounter-specific procedural music & Title stems
     if (state.gameState === 'COMBAT') {
+      this.sound.stopTitleMusic();
       const type = this.engine.battleState?.encounterType || 'combat';
       if (type === 'boss') {
         this.sound.playEncounterMusic('boss');
@@ -1949,10 +2130,20 @@ export class GameUI {
       } else {
         this.sound.playEncounterMusic('combat');
       }
-    } else if (state.gameState === 'GAME_OVER' || state.gameState === 'MENU' || state.gameState === 'VICTORY') {
+    } else if (state.gameState === 'GAME_OVER' || state.gameState === 'VICTORY') {
+      this.sound.stopTitleMusic();
+      this.sound.stopMusic();
+    } else if (state.gameState === 'MENU') {
+      this.sound.stopMusic();
+      this.sound.playTitleMusic();
+    } else if (state.gameState === 'LOADOUT_STORE') {
+      if (this.sound.isTitleMusicPlaying) {
+        this.sound.stopTitleMusic(2.5);
+      }
       this.sound.stopMusic();
     } else {
-      // Ambient states: MAP, SHOP, EVENT, FORGE, LOADOUT_STORE
+      // Ambient states: MAP, SHOP, EVENT, FORGE
+      this.sound.stopTitleMusic();
       this.sound.playEncounterMusic('ambient');
     }
 
@@ -2939,6 +3130,16 @@ export class GameUI {
               </div>
             </div>
             
+            ${battle.curse ? `
+              <div class="mobile-curse-info" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 4px; border: 1px dashed var(--color-gold); background: rgba(197,159,81,0.05); border-radius: 4px; font-family: var(--font-header);">
+                <span style="font-size: 1.1rem;">${battle.curse.icon}</span>
+                <div style="display: flex; flex-direction: column; text-align: left;">
+                  <span style="font-size: 0.85rem; font-weight: bold; color: var(--color-gold);">${battle.curse.name}</span>
+                  <span style="font-size: 0.75rem; color: #ece0d8; opacity: 0.85; line-height: 1.2;">${battle.curse.description}</span>
+                </div>
+              </div>
+            ` : ''}
+
             <!-- Bottom row: Scores or HP Bars -->
             <div class="mobile-hud-bottom-row">
               ${isPointsMode ? `
@@ -3017,6 +3218,15 @@ export class GameUI {
                   <span class="score-value">${battle.enemyScore || 0}</span>
                 </div>
               </div>
+              ${battle.curse ? `
+                <div class="curse-box" style="margin-top: 10px; padding: 6px 10px; border: 1.5px solid var(--color-gold); background: rgba(18, 11, 8, 0.6); border-radius: 4px; display: flex; align-items: center; gap: 10px; text-align: left; font-family: var(--font-header);">
+                  <span style="font-size: 1.5rem;">${battle.curse.icon}</span>
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 0.95rem; font-weight: bold; color: var(--color-gold); text-transform: uppercase; letter-spacing: 0.5px;">${battle.curse.name}</span>
+                    <span style="font-size: 0.75rem; color: #ece0d8; opacity: 0.9; line-height: 1.3;">${battle.curse.description}</span>
+                  </div>
+                </div>
+              ` : ''}
             </div>
           `;
         } else {
@@ -3030,6 +3240,15 @@ export class GameUI {
               <span class="intent-label">INTENT:</span>
               <span id="enemy-intent-text" class="intent-desc">${battle.enemy.intent.description}</span>
             </div>
+            ${battle.curse ? `
+              <div class="curse-box" style="margin-top: 10px; padding: 6px 10px; border: 1.5px solid var(--color-gold); background: rgba(18, 11, 8, 0.6); border-radius: 4px; display: flex; align-items: center; gap: 10px; text-align: left; font-family: var(--font-header);">
+                <span style="font-size: 1.5rem;">${battle.curse.icon}</span>
+                <div style="display: flex; flex-direction: column;">
+                  <span style="font-size: 0.95rem; font-weight: bold; color: var(--color-gold); text-transform: uppercase; letter-spacing: 0.5px;">${battle.curse.name}</span>
+                  <span style="font-size: 0.75rem; color: #ece0d8; opacity: 0.9; line-height: 1.3;">${battle.curse.description}</span>
+                </div>
+              </div>
+            ` : ''}
           `;
         }
       }
@@ -3054,11 +3273,13 @@ export class GameUI {
       const costText = cost === 0 ? "FREE" : `${cost} ⚡`;
       drawCardBtn.innerText = `DRAW CARD (${costText})`;
       
+      const maxHandSize = battle.curse?.id === 'choked' ? 5 : 8;
       const canDraw = battle.chipsPool >= cost && 
                       battle.phase === 'betting' && 
                       !this.isSpinning && 
                       (battle.drawPile.length > 0 || battle.discardPile.length > 0) && 
-                      battle.hand.length < 8;
+                      battle.hand.length < maxHandSize &&
+                      this.currentView !== 4;
       drawCardBtn.disabled = !canDraw;
     }
 
@@ -3073,21 +3294,7 @@ export class GameUI {
       mobileEssenceVal.innerText = `${battle.chipsPool} ⚡`;
     }
 
-    // Update block shield indicator on player HP bar
-    const hpBarContainer = this.root.querySelector('.hp-display .bar-container') as HTMLElement;
-    if (hpBarContainer) {
-      // Remove existing block indicator
-      const existingBlock = hpBarContainer.querySelector('.block-indicator');
-      if (existingBlock) existingBlock.remove();
-      
-      if (battle.playerBlock > 0) {
-        const blockEl = document.createElement('div');
-        blockEl.className = 'block-indicator';
-        blockEl.innerText = `🛡 ${battle.playerBlock}`;
-        hpBarContainer.style.position = 'relative';
-        hpBarContainer.appendChild(blockEl);
-      }
-    }
+
 
     // Re-render HTML betting board number grid dynamically based on player wheel configuration
     const numGridContainer = this.root.querySelector('.number-grid-container') as HTMLElement;
@@ -3475,13 +3682,12 @@ export class GameUI {
   }
 
   private calculateMoveEV(intent: any, battleState: any): number {
-    const playerBlock = battleState.playerBlock || 0;
     const chipPool = battleState.chipsPool || 0;
     const round = battleState.turn || 1;
     
     if (intent.type === 'attack') {
       const dmgValue = intent.value || 0;
-      let ev = Math.max(0.5, dmgValue - playerBlock);
+      let ev = Math.max(0.5, dmgValue);
       ev = ev * (1 + round * 0.08);
       return parseFloat(ev.toFixed(2));
     } else if (intent.type === 'steal_chips') {
@@ -3564,7 +3770,36 @@ export class GameUI {
     // Retrieve selected play (optimal choice)
     const selectedPlay = (enemy as any).lastChosenPlay || allPlays[0];
 
+    const themeCards: string[] = [];
+    if (enemy.spriteName === 'wraith') {
+      themeCards.push('crimson_double', 'dark_fury', 'attraction_coil', 'repulsion_coil');
+    } else if (enemy.spriteName === 'croupier') {
+      themeCards.push('green_greed', 'steel_barricade', 'scrap_shield');
+    } else if (enemy.spriteName === 'decay_wheel') {
+      themeCards.push('friction_oil', 'focus_sight');
+    } else if (enemy.isBoss) {
+      themeCards.push('crimson_double', 'dark_fury', 'green_greed', 'predictive_sight', 'eagle_eye', 'fortress_shield');
+    } else if (enemy.isElite) {
+      themeCards.push('predictive_sight', 'steel_barricade', 'attraction_coil', 'repulsion_coil');
+    } else {
+      themeCards.push('scrap_shield', 'focus_sight');
+    }
+
+    const deckNames = themeCards.map(id => {
+      const card = CARD_DATABASE[id];
+      return card ? card.name : id;
+    });
+
+    const currentChips = this.engine.battleState?.activeWheelOwner === 'enemy' ? this.engine.battleState.chipsPool : 10;
+    const chipsPerTurn = this.engine.battleState?.curse?.id === 'greed' ? 5 : 10;
+
     let html = '';
+    html += '<div style="margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px dashed rgba(255,255,255,0.15); font-size: 10px; line-height: 1.4;">';
+    html += `<div><strong>Enemy Name:</strong> ${enemy.name}</div>`;
+    html += `<div><strong>Available Chips:</strong> ${currentChips} 🪙</div>`;
+    html += `<div><strong>Chips per Turn:</strong> ${chipsPerTurn} 🪙</div>`;
+    html += `<div><strong>Deck Pool:</strong> ${deckNames.join(', ')}</div>`;
+    html += '</div>';
     
     // 1. Display Current Simulated Hand
     html += '<div style="margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px dashed rgba(255,255,255,0.15);">';
@@ -3632,6 +3867,48 @@ export class GameUI {
       `;
     });
     html += '</div></div>';
+
+    contentEl.innerHTML = html;
+  }
+
+  private updateSoundVisualizerDev() {
+    const contentEl = this.root.querySelector('#dev-sound-visualizer-content');
+    if (!contentEl) return;
+
+    const panel = this.root.querySelector('#dev-tools-panel');
+    if (!panel || panel.classList.contains('hidden')) return;
+
+    const diag = this.sound.getAudioDiagnostics();
+    
+    const makeBar = (val: number) => {
+      const bars = Math.round(val * 10);
+      return '[' + '='.repeat(Math.max(0, Math.min(10, bars))) + ' '.repeat(Math.max(0, Math.min(10, 10 - bars))) + ']';
+    };
+
+    let html = `<div><strong>MUSIC TYPE:</strong> ${diag.currentMusicType ? diag.currentMusicType.toUpperCase() : 'STOPPED'}</div>`;
+    
+    if (diag.isTitleMusicPlaying) {
+      html += `<div style="margin-top: 4px;"><strong>TITLE STEMS STATE:</strong></div>`;
+      html += `<div>Loop Count: ${diag.titleLoopCount}</div>`;
+      html += `<div>Active Level: ${diag.titleActiveLevel} / 4</div>`;
+      html += `<div>Direction: ${diag.titleLayersDirection.toUpperCase()}</div>`;
+      html += `<div style="margin-top: 4px;"><strong>STEM VOLUMES:</strong></div>`;
+      
+      const layerNames = ["Bass/Groove", "Synth Pads", "Percussion", "Melody Lead"];
+      for (let i = 0; i < 4; i++) {
+        const vol = diag.layerVolumes[i] || 0;
+        const relativeVol = diag.masterMusicVolume > 0 ? (vol / diag.masterMusicVolume) : 0;
+        const percent = Math.round(relativeVol * 100);
+        html += `<div style="font-size: 10px;">L${i+1} (${layerNames[i]}): ${makeBar(relativeVol)} ${percent}%</div>`;
+      }
+    } else {
+      html += `<div style="margin-top: 4px; color: #888;">Title stems not playing.</div>`;
+    }
+
+    html += `<div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.15);"><strong>MASTER VOLUMES:</strong></div>`;
+    html += `<div style="font-size: 10px;">Music: ${makeBar(diag.masterMusicVolume)} ${Math.round(diag.masterMusicVolume*100)}%</div>`;
+    html += `<div style="font-size: 10px;">Drone: ${makeBar(diag.masterDroneVolume)} ${Math.round(diag.masterDroneVolume*100)}%</div>`;
+    html += `<div style="font-size: 10px;">SFX:   ${makeBar(diag.masterSfxVolume)} ${Math.round(diag.masterSfxVolume*100)}%</div>`;
 
     contentEl.innerHTML = html;
   }

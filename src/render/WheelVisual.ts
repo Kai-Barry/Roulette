@@ -511,13 +511,67 @@ export class CardVisual {
   targetPosition = new THREE.Vector3();
   targetRotation = new THREE.Euler();
   
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  texture: THREE.CanvasTexture;
+  card: Card;
+  isPointsMode: boolean;
+  
   constructor(card: Card, isPointsMode: boolean = false) {
-    // Create card textured with procedural Canvas
+    this.card = card;
+    this.isPointsMode = isPointsMode;
+    
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = 512;
+    this.canvas.height = 720;
+    this.ctx = this.canvas.getContext('2d')!;
+    
+    this.texture = new THREE.CanvasTexture(this.canvas);
+    this.texture.colorSpace = THREE.SRGBColorSpace;
+    
+    this.drawCardFace();
+    
+    const cardGeo = new THREE.BoxGeometry(0.11, 0.16, 0.002);
+    
+    const backMat = new THREE.MeshBasicMaterial({ 
+      color: card.rarity === 'legendary' ? 0x20072c :
+             card.rarity === 'rare' ? 0x3d2708 :
+             card.rarity === 'uncommon' ? 0x0f1821 : 0x2d1a12, 
+      fog: false 
+    });
+    const sideMat = new THREE.MeshBasicMaterial({ 
+      color: card.rarity === 'legendary' ? 0xb53c14 :
+             card.rarity === 'rare' ? 0x8c6d13 :
+             card.rarity === 'uncommon' ? 0x224252 : 0x5c4033, 
+      fog: false 
+    });
+    const frontMat = new THREE.MeshBasicMaterial({ 
+      map: this.texture,
+      fog: false
+    });
+
+    const materials = [
+      sideMat, // right
+      sideMat, // left
+      sideMat, // top
+      sideMat, // bottom
+      frontMat, // front
+      backMat   // back
+    ];
+
+    this.mesh = new THREE.Mesh(cardGeo, materials);
+    this.mesh.castShadow = true;
+    this.mesh.userData = { cardId: card.id };
+  }
+
+  drawCardFace(turnsLeft?: number) {
+    const ctx = this.ctx;
+    const canvas = this.canvas;
+    const card = this.card;
+    const isPointsMode = this.isPointsMode;
     const scale = 2;
-    const canvas = document.createElement('canvas');
-    canvas.width = 256 * scale;
-    canvas.height = 360 * scale;
-    const ctx = canvas.getContext('2d')!;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Draw card background
     if (card.rarity === 'legendary') {
@@ -596,25 +650,21 @@ export class CardVisual {
     
     ctx.fillStyle = ctx.strokeStyle;
     if (card.type === 'physics') {
-      // Draw ball path
       ctx.beginPath();
       ctx.arc(128 * scale, 165 * scale, 30 * scale, 0, Math.PI * 2);
       ctx.stroke();
     } else if (card.type === 'board') {
-      // Draw grid
       ctx.fillRect(100 * scale, 135 * scale, 56 * scale, 56 * scale);
     } else if (card.type === 'payout') {
-      // Draw skull/multiplier
       ctx.font = 'bold ' + (36 * scale) + 'px "Courier Prime", monospace';
       ctx.fillStyle = card.rarity === 'legendary' ? '#ff5722' :
                       card.rarity === 'rare' ? '#ffd700' : '#e57373';
       ctx.fillText('x2.5', 90 * scale, 175 * scale);
     } else {
-      // Utility gear/dice
       ctx.fillRect(108 * scale, 145 * scale, 40 * scale, 40 * scale);
     }
 
-    // Add stars to illustration block for uncommon/rare/legendary
+    // Add stars to illustration block
     if (card.rarity === 'legendary') {
       ctx.fillStyle = '#ff5722';
       ctx.font = (16 * scale) + 'px "Courier Prime", monospace';
@@ -650,43 +700,58 @@ export class CardVisual {
     }
     ctx.fillText(line, 24 * scale, y);
 
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.needsUpdate = true;
-    
-    // 3D Card box geometry
-    const cardGeo = new THREE.BoxGeometry(0.11, 0.16, 0.002);
-    
-    // Materials: Front has canvas texture, back is wooden dark back, sides are cardboard gray
-    const backMat = new THREE.MeshBasicMaterial({ 
-      color: card.rarity === 'legendary' ? 0x20072c :
-             card.rarity === 'rare' ? 0x3d2708 :
-             card.rarity === 'uncommon' ? 0x0f1821 : 0x2d1a12, 
-      fog: false 
-    });
-    const sideMat = new THREE.MeshBasicMaterial({ 
-      color: card.rarity === 'legendary' ? 0xb53c14 :
-             card.rarity === 'rare' ? 0x8c6d13 :
-             card.rarity === 'uncommon' ? 0x224252 : 0x5c4033, 
-      fog: false 
-    });
-    const frontMat = new THREE.MeshBasicMaterial({ 
-      map: texture,
-      fog: false
-    });
+    // If turnsLeft is active or it is a fight-long persistent card, draw a banner!
+    const fightLongEffects = new Set([
+      'CRIMSON_SURGE', 'DARK_FURY', 'LUCKY_SEVEN', 'UNLUCKY_THIRTEEN',
+      'JACKPOT_TRIO', 'DEVILS_TRIO', 'ZERO_HERO', 'EMERALD_FOREST',
+      'LOAN_SHARK', 'ZERO_ECLIPSE', 'MONOCHROME_EYE',
+      'CHIP_MINE', 'SHIELD_GENERATOR', 'LIFE_FOUNTAIN',
+      'DANGER_ZONE', 'VOID_HOLE', 'MIRROR_SLOT'
+    ]);
+    const isFightLong = fightLongEffects.has(card.effectId);
 
-    const materials = [
-      sideMat, // right
-      sideMat, // left
-      sideMat, // top
-      sideMat, // bottom
-      frontMat, // front
-      backMat   // back
-    ];
+    if (turnsLeft !== undefined && turnsLeft > 0) {
+      // Draw banner background across the bottom
+      ctx.fillStyle = 'rgba(255, 87, 34, 0.85)'; // semi-transparent neon orange
+      ctx.fillRect(12 * scale, 312 * scale, canvas.width - 24 * scale, 30 * scale);
+      
+      // Draw banner border
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5 * scale;
+      ctx.strokeRect(12 * scale, 312 * scale, canvas.width - 24 * scale, 30 * scale);
+      
+      // Draw text
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold ' + (12 * scale) + 'px "Courier Prime", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`ACTIVE: ${turnsLeft} SPINS LEFT`, canvas.width / 2, 330 * scale);
+      
+      // Revert text align
+      ctx.textAlign = 'left';
+    } else if (isFightLong) {
+      // Draw banner background across the bottom (purple/magenta for fight-long)
+      ctx.fillStyle = 'rgba(156, 39, 176, 0.85)';
+      ctx.fillRect(12 * scale, 312 * scale, canvas.width - 24 * scale, 30 * scale);
+      
+      // Draw banner border
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5 * scale;
+      ctx.strokeRect(12 * scale, 312 * scale, canvas.width - 24 * scale, 30 * scale);
+      
+      // Draw text
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold ' + (12 * scale) + 'px "Courier Prime", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('ACTIVE: FIGHT-LONG', canvas.width / 2, 330 * scale);
+      
+      // Revert text align
+      ctx.textAlign = 'left';
+    }
+  }
 
-    this.mesh = new THREE.Mesh(cardGeo, materials);
-    this.mesh.castShadow = true;
-    this.mesh.userData = { cardId: card.id };
+  updatePersistentState(turnsLeft?: number) {
+    this.drawCardFace(turnsLeft);
+    this.texture.needsUpdate = true;
   }
 
   update(lerpFactor = 0.15) {

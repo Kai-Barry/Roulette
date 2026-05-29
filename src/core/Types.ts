@@ -149,9 +149,18 @@ export interface Bet {
   amount: number;
 }
 
+export interface Curse {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+}
+
 export interface BattleState {
   enemy: Enemy;
   encounterType?: 'combat' | 'elite' | 'boss';
+  curse?: Curse;
+  isTestCombatMode?: boolean;
   turn: number;
   playerScore?: number;
   enemyScore?: number;
@@ -166,7 +175,6 @@ export interface BattleState {
   drawsThisTurn: number;
   playerWheel: WheelConfig;
   enemyWheel: WheelConfig;
-  playerBlock: number; // Shield value
   predictionSector?: number[]; // List of numbers predicted to win
   predictionOffset?: number;
   spinSeedAngle?: number;
@@ -176,7 +184,6 @@ export interface BattleState {
   turnStartBackup?: {
     chipsPool: number;
     hp: number;
-    playerBlock: number;
     physicsModifiers: PhysicsModifiers;
     boardModifiers: BoardModifiers;
     enemyIntent: EnemyIntent;
@@ -241,11 +248,9 @@ export interface BoardModifiers {
   cursedZones?: number[]; // list of numbers in cursed zones (enemy stun)
   chipMines?: Record<number, number>; // number -> chip reward
   lifeFountains?: Record<number, number>; // number -> healing amount
-  shieldGenerators?: Record<number, number>; // number -> block amount
   dangerZones?: Record<number, number>; // number -> flat damage to enemy
   goldFoils?: number[]; // numbers with 3x damage multiplier
   copperPlates?: number[]; // numbers with 1.5x damage multiplier
-  voidHoles?: number[]; // numbers that break enemy block
   mirrorSlots?: Record<number, number>; // source number -> mirror target number
   doubleNextPayout?: boolean;
   insuranceActive?: boolean;
@@ -256,4 +261,6 @@ export interface BoardModifiers {
   globalMultiplier?: number;
   enemyNextStun?: boolean;
   enemyStunTurns?: number;
+  tempDurations?: Record<string, number>;
+  bloodSpillSlots?: number[];
 }

@@ -3,6 +3,17 @@ export class SoundManager {
   private droneOsc: OscillatorNode | null = null;
   private droneGain: GainNode | null = null;
   
+  // Custom Title Music Stems variables
+  private titleBuffers: AudioBuffer[] = [];
+  private titleSources: AudioBufferSourceNode[] = [];
+  private titleGains: GainNode[] = [];
+  private isTitleMusicLoading = false;
+  public isTitleMusicPlaying = false;
+  private titleLoopTimeout: any = null;
+  private titleLoopCount = 0;
+  private titleLayersDirection: 'up' | 'down' = 'up';
+  private titleActiveLevel = 1;
+  
   // Custom audio volumes (0.0 to 1.0)
   public musicVolume: number = 0.55; // default 55%
   public droneVolume: number = 0.15; // default 15%
@@ -467,5 +478,210 @@ export class SoundManager {
       this.musicInterval = null;
     }
     this.currentMusicType = null;
+  }
+
+  private async loadAudioBuffer(url: string): Promise<AudioBuffer> {
+    this.initContext();
+    if (!this.ctx) throw new Error("AudioContext not initialized");
+    const response = await fetch(url);
+    const arrayBuffer = await response.arrayBuffer();
+    return await this.ctx.decodeAudioData(arrayBuffer);
+  }
+
+  async loadTitleMusic(): Promise<void> {
+    if (this.titleBuffers.length > 0 || this.isTitleMusicLoading) return;
+    this.isTitleMusicLoading = true;
+    try {
+      const urls = [
+        '/audio/music/title_layer1.ogg',
+        '/audio/music/title_layer2.ogg',
+        '/audio/music/title_layer3.ogg',
+        '/audio/music/title_layer4.ogg'
+      ];
+      this.titleBuffers = await Promise.all(urls.map(url => this.loadAudioBuffer(url)));
+      console.log("Title music stems loaded successfully.");
+    } catch (err) {
+      console.warn("Failed to load title music stems:", err);
+    } finally {
+      this.isTitleMusicLoading = false;
+    }
+  }
+
+  private scheduleFade(gainNode: GainNode, targetValue: number, startTime: number, duration: number) {
+    if (!this.ctx) return;
+    gainNode.gain.setValueAtTime(gainNode.gain.value, startTime);
+    gainNode.gain.linearRampToValueAtTime(targetValue, startTime + duration);
+  }
+
+  private runTitleMusicScheduler(loopLengthSeconds: number) {
+    if (!this.isTitleMusicPlaying || !this.ctx) return;
+
+    // Determine target volumes for the upcoming loop cycle
+    const targets = [0, 0, 0, 0];
+    
+    this.titleLoopCount++;
+    
+    // buildup sequence of track indices: Bass (3), Chords (1), Drums (2), Melody (0)
+    const buildupSequence = [3, 1, 2, 0];
+    
+    // Logic for building up, staying at top, or dropping down
+    if (this.titleLayersDirection === 'up') {
+      this.titleActiveLevel++;
+      if (this.titleActiveLevel >= 4) {
+        this.titleActiveLevel = 4;
+        this.titleLayersDirection = 'down'; // start coming down next time
+      }
+      
+      // Normal buildup: enable layers according to buildup sequence
+      for (let i = 0; i < this.titleActiveLevel; i++) {
+        const layerIdx = buildupSequence[i];
+        targets[layerIdx] = 1.0;
+      }
+    } else {
+      // Direction is 'down'
+      const rand = Math.random();
+      if (rand < 0.40) {
+        // Sudden breakdown: drop to 1 layer solo
+        this.titleActiveLevel = 1;
+        this.titleLayersDirection = 'up';
+        
+        // Randomize which layer plays solo: select from Bass (3), Chords (1), or Drums (2) (never melody index 0)
+        const soloLayer = [3, 1, 2][Math.floor(Math.random() * 3)];
+        targets[soloLayer] = 1.0;
+      } else {
+        // Progressive decrease
+        this.titleActiveLevel--;
+        if (this.titleActiveLevel <= 1) {
+          this.titleActiveLevel = 1;
+          this.titleLayersDirection = 'up';
+        }
+        for (let i = 0; i < this.titleActiveLevel; i++) {
+          const layerIdx = buildupSequence[i];
+          targets[layerIdx] = 1.0;
+        }
+      }
+    }
+
+    const now = this.ctx.currentTime;
+    const fadeTime = 1.2;
+    for (let i = 0; i < 4; i++) {
+      if (this.titleGains[i]) {
+        const currentVal = this.titleGains[i].gain.value;
+        const targetVol = targets[i] * this.musicVolume;
+        this.titleGains[i].gain.cancelScheduledValues(now);
+        this.titleGains[i].gain.setValueAtTime(currentVal, now);
+        this.titleGains[i].gain.linearRampToValueAtTime(targetVol, now + fadeTime);
+      }
+    }
+
+    // Schedule the next check exactly 1 loop length from now
+    this.titleLoopTimeout = setTimeout(() => {
+      this.runTitleMusicScheduler(loopLengthSeconds);
+    }, loopLengthSeconds * 1000);
+  }
+
+  playTitleMusic() {
+    this.initContext();
+    if (!this.ctx) return;
+
+    if (this.isTitleMusicPlaying) {
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(err => console.warn('Failed to resume AudioContext:', err));
+      }
+      return;
+    }
+
+    this.loadTitleMusic().then(() => {
+      if (!this.ctx || this.titleBuffers.length < 4 || this.isTitleMusicPlaying) return;
+      this.isTitleMusicPlaying = true;
+
+      const startTime = this.ctx.currentTime;
+      this.titleSources = [];
+      this.titleGains = [];
+      this.titleLoopCount = 0;
+      this.titleLayersDirection = 'up';
+      this.titleActiveLevel = 1;
+
+      for (let i = 0; i < 4; i++) {
+        const source = this.ctx.createBufferSource();
+        source.buffer = this.titleBuffers[i];
+        source.loop = true;
+
+        const gainNode = this.ctx.createGain();
+        // Start with layer 4 (index 3, Bass) at full volume, others muted initially
+        const initVol = (i === 3) ? this.musicVolume : 0.0;
+        gainNode.gain.setValueAtTime(initVol, startTime);
+
+        source.connect(gainNode);
+        gainNode.connect(this.ctx.destination);
+
+        this.titleSources.push(source);
+        this.titleGains.push(gainNode);
+
+        source.start(startTime);
+      }
+
+      const loopLength = this.titleBuffers[0].duration;
+
+      // Schedule next transitions starting from loop 1
+      this.titleLoopTimeout = setTimeout(() => {
+        this.runTitleMusicScheduler(loopLength);
+      }, loopLength * 1000);
+    });
+  }
+
+  stopTitleMusic(fadeDuration = 0) {
+    if (this.titleLoopTimeout) {
+      clearTimeout(this.titleLoopTimeout);
+      this.titleLoopTimeout = null;
+    }
+    
+    if (fadeDuration > 0 && this.ctx && this.titleSources.length > 0) {
+      const now = this.ctx.currentTime;
+      this.titleGains.forEach(gainNode => {
+        if (gainNode) {
+          const currentVal = gainNode.gain.value;
+          gainNode.gain.cancelScheduledValues(now);
+          gainNode.gain.setValueAtTime(currentVal, now);
+          gainNode.gain.linearRampToValueAtTime(0, now + fadeDuration);
+        }
+      });
+
+      const sourcesToStop = [...this.titleSources];
+      setTimeout(() => {
+        sourcesToStop.forEach(source => {
+          try {
+            source.stop();
+          } catch (e) {}
+        });
+      }, fadeDuration * 1000);
+
+      this.titleSources = [];
+      this.titleGains = [];
+      this.isTitleMusicPlaying = false;
+    } else {
+      this.titleSources.forEach(source => {
+        try {
+          source.stop();
+        } catch (e) {}
+      });
+      this.titleSources = [];
+      this.titleGains = [];
+      this.isTitleMusicPlaying = false;
+    }
+  }
+
+  getAudioDiagnostics() {
+    return {
+      masterMusicVolume: this.musicVolume,
+      masterDroneVolume: this.droneVolume,
+      masterSfxVolume: this.sfxVolume,
+      currentMusicType: this.currentMusicType,
+      isTitleMusicPlaying: this.isTitleMusicPlaying,
+      titleLoopCount: this.titleLoopCount,
+      titleLayersDirection: this.titleLayersDirection,
+      titleActiveLevel: this.titleActiveLevel,
+      layerVolumes: this.titleGains.map(g => g ? g.gain.value : 0.0)
+    };
   }
 }

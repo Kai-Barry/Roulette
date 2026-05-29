@@ -1,9 +1,22 @@
-import { RunState, BattleState, GameState, Enemy, Card, MapNode, Bet, PhysicsModifiers, BoardModifiers, EnemyActionType, EnemyIntent, WheelConfig, StoreItem, SlotColor, BetColor, ForgeCard } from './Types';
+import { RunState, BattleState, GameState, Enemy, Card, MapNode, Bet, PhysicsModifiers, BoardModifiers, EnemyActionType, EnemyIntent, WheelConfig, StoreItem, SlotColor, BetColor, ForgeCard, Curse } from './Types';
 import { createStarterDeck, getCardById, CARD_DATABASE, getRandomCardId } from '../cards/CardDatabase';
 import { MapGenerator } from '../map/MapGenerator';
 import { getSlotColor, getBetColor, getEffectiveColor, getSlotEffect, RoulettePhysics } from '../physics/RoulettePhysics';
 import { CardHandler } from '../cards/CardHandler';
 import { WHEEL_TEMPLATES, BOARD_UPGRADES, applyBoardUpgrade, initializeWheelColors, WHEEL_NUMBERS, WHEEL_POOL, generateStoreWheels, getRandomCommonWheel, getAllWheels } from './WheelUpgrades';
+
+const CURSES: Curse[] = [
+  { id: 'faraday', name: 'Faraday Curse', description: 'Magnetic cheats (Lodestones, Coils) are disabled.', icon: '🧲' },
+  { id: 'fog', name: 'Fog Curse', description: 'Predictions are disabled (prediction size is 0).', icon: '🌫️' },
+  { id: 'rust', name: 'Rust Curse', description: 'Double friction on all player spins.', icon: '⚙️' },
+  { id: 'greed', name: 'Greed Curse', description: 'Turn chip pool is halved (gain 5 instead of 10).', icon: '💰' },
+  { id: 'avarice', name: 'Avarice Curse', description: 'Drawing cards costs a flat 3 chips.', icon: '💸' },
+  { id: 'fragile', name: 'Fragile Curse', description: 'You cannot heal HP (restoring Blood is disabled).', icon: '🏺' },
+  { id: 'eclipse', name: 'Eclipse Curse', description: 'All Green sector bets deal 0 damage.', icon: '🌑' },
+  { id: 'curse', name: 'Curse of Blood', description: 'Lose 2 HP at the start of each round.', icon: '💀' },
+  { id: 'lead', name: 'Lead Curse', description: 'Bets per slot are capped at 5 chips.', icon: '🪨' },
+  { id: 'choked', name: 'Choked Curse', description: 'Maximum hand size is reduced by 3 (max 5).', icon: '🎴' }
+];
 
 // Define initial settings
 const BASE_MAX_HP = 80;
@@ -88,7 +101,22 @@ export class GameEngine {
 
   // --- COMBAT SYSTEM ---
 
+  devStartTestCombat() {
+    this.initCombat('combat');
+    if (this.battleState) {
+      (this.battleState as any).isTestCombatMode = true;
+      this.battleState.enemy.name = "DUMMY TARGET (TEST)";
+      this.battleState.enemy.maxHp = 999;
+      this.battleState.enemy.hp = 999;
+      this.battleState.enemy.intent = { type: 'attack', value: 0, description: 'Test Dummy (does nothing)' };
+    }
+  }
+
   private initCombat(type: 'combat' | 'elite' | 'boss') {
+    let curse: Curse | undefined;
+    if (type === 'elite' || type === 'boss') {
+      curse = CURSES[Math.floor(Math.random() * CURSES.length)];
+    }
     let enemyName = 'Dread Gambler';
     let maxHp = 45;
     let spriteName = 'gambler';
@@ -222,12 +250,13 @@ export class GameEngine {
     this.battleState = {
       enemy,
       encounterType: type,
+      curse,
       turn: 1,
       playerScore: 0,
       enemyScore: 0,
       isSuddenDeath: false,
       maxRounds: type === 'elite' ? 5 : type === 'boss' ? 8 : 3,
-      chipsPool: 10, // Starting chips for combat turn 1
+      chipsPool: curse?.id === 'greed' ? 5 : 10, // Starting chips for combat turn 1
       hand: [],
       drawPile,
       discardPile: [],
@@ -239,7 +268,6 @@ export class GameEngine {
       boardModifiers: defaultBoard,
       phase: 'betting',
       activeWheelOwner: 'player',
-      playerBlock: 0,
       predictionSector: [],
       predictionOffset: Math.random(),
       spinSeedAngle,
@@ -247,7 +275,8 @@ export class GameEngine {
       spinSeedSpeed,
       ballSeedSpeed,
       drawsThisTurn: 0,
-      isResolving: false
+      isResolving: false,
+      activePlayedCards: []
     };
 
     // Reset physics engines with initial modifiers
@@ -281,7 +310,8 @@ export class GameEngine {
       this.battleState.discardPile = [];
     }
 
-    if (this.battleState.drawPile.length > 0 && this.battleState.hand.length < 8) {
+    const maxHandSize = this.battleState.curse?.id === 'choked' ? 5 : 8;
+    if (this.battleState.drawPile.length > 0 && this.battleState.hand.length < maxHandSize) {
       const card = this.battleState.drawPile.pop()!;
       this.battleState.hand.push(card);
       return true;
@@ -291,6 +321,7 @@ export class GameEngine {
 
   getDrawCardCost(): number {
     if (!this.battleState) return 0;
+    if (this.battleState.curse?.id === 'avarice') return 3;
     const draws = this.battleState.drawsThisTurn || 0;
     if (draws === 0) return 0;
     if (draws === 1) return 3;
@@ -309,7 +340,8 @@ export class GameEngine {
       return false; // No cards left to draw
     }
     // Hand size limit check
-    if (this.battleState.hand.length >= 8) {
+    const maxHandSize = this.battleState.curse?.id === 'choked' ? 5 : 8;
+    if (this.battleState.hand.length >= maxHandSize) {
       return false;
     }
     
@@ -330,18 +362,27 @@ export class GameEngine {
     if (!this.battleState) return false;
     if (amount <= 0 || this.battleState.chipsPool < amount) return false;
 
-    // Deduct chips from pool
-    this.battleState.chipsPool -= amount;
-
     // Check if matching bet exists, merge if so
     const existing = this.battleState.bets.find(b => 
       b.type === type && (type !== 'number' || b.numberValue === numberValue)
     );
 
+    let actualAmount = amount;
+    if (this.battleState.curse?.id === 'lead') {
+      const existingAmount = existing ? existing.amount : 0;
+      actualAmount = Math.min(amount, 5 - existingAmount);
+      if (actualAmount <= 0) return false;
+    }
+
+    if (this.battleState.chipsPool < actualAmount) return false;
+
+    // Deduct chips from pool
+    this.battleState.chipsPool -= actualAmount;
+
     if (existing) {
-      existing.amount += amount;
+      existing.amount += actualAmount;
     } else {
-      this.battleState.bets.push({ type, amount, numberValue });
+      this.battleState.bets.push({ type, amount: actualAmount, numberValue });
     }
 
     this.updatePrediction();
@@ -462,30 +503,46 @@ export class GameEngine {
     if (!this.battleState) return null;
     this.battleState.phase = 'spinning';
     
-    const activeWheel = (this.battleState as any).activeWheelOwner === 'enemy' ? this.battleState.enemyWheel : this.battleState.playerWheel;
+    const isEnemyWheel = (this.battleState as any).activeWheelOwner === 'enemy';
+    const activeWheel = isEnemyWheel ? this.battleState.enemyWheel : this.battleState.playerWheel;
     const winningNumbers = this.getWinningNumbers(activeWheel);
 
-    // Run prediction dry-run BEFORE the actual spin (uses same seeds)
-    if (this.battleState.physicsModifiers.predictionSize > 0) {
+    // Run prediction dry-run BEFORE the actual spin (uses same seeds) - player only
+    if (!isEnemyWheel && this.battleState.physicsModifiers.predictionSize > 0) {
       this.battleState.predictionSector = this.runPredictionDryRun(activeWheel, winningNumbers);
     } else {
       this.battleState.predictionSector = [];
     }
 
+    // Set isLocked to true on all played cards when spin starts to prevent retraction
+    if (this.battleState.activePlayedCards) {
+      this.battleState.activePlayedCards.forEach(c => {
+        (c as any).isLocked = true;
+      });
+    }
+
     // Reset correct physics engine with current turn modifiers and SAME seeds
     const activePhysics = this.getActivePhysics();
+    const physMods = this.battleState.physicsModifiers;
+    const boardMods = this.battleState.boardModifiers;
+
     activePhysics.reset(
       activeWheel,
-      this.battleState.physicsModifiers,
+      physMods,
       winningNumbers,
       this.battleState.spinSeedAngle,
       this.battleState.ballSeedAngle,
       this.battleState.spinSeedSpeed,
       this.battleState.ballSeedSpeed,
-      this.battleState.boardModifiers
+      boardMods
     );
 
     return activePhysics;
+  }
+
+  healHp(amount: number) {
+    if (this.battleState?.curse?.id === 'fragile') return;
+    this.runState.hp = Math.min(this.runState.maxHp, this.runState.hp + amount);
   }
 
   // Evaluates the result once physics settles
@@ -520,7 +577,7 @@ export class GameEngine {
 
     // Apply lucky number checks (Sinner's Seven)
     if (activeWheel.upgrades.includes('lucky_seven') && winningNum === 7) {
-      this.runState.hp = Math.min(this.runState.maxHp, this.runState.hp + 6);
+      this.healHp(6);
     }
 
     // 2. Apply special color effects
@@ -533,7 +590,7 @@ export class GameEngine {
       slotEffectDesc = slotEffect.description;
       switch (slotEffect.type) {
         case 'gold_heal':
-          this.runState.hp = Math.min(this.runState.maxHp, this.runState.hp + 3);
+          this.healHp(3);
           if (isPointsMode) {
             this.battleState.playerScore = (this.battleState.playerScore || 0) + 10;
             slotEffectDesc = 'GOLD — Healed 3 HP and gained +10 PTS!';
@@ -547,10 +604,12 @@ export class GameEngine {
           }
           break;
         case 'cyan_shield':
-          this.battleState.playerBlock += 8;
+          this.battleState.chipsPool += 15;
           if (isPointsMode) {
             this.battleState.playerScore = (this.battleState.playerScore || 0) + 5;
-            slotEffectDesc = 'CYAN SHIELD — Gained 8 block and +5 PTS!';
+            slotEffectDesc = 'CYAN ESSENCE — Gained 15 Essence and +5 PTS!';
+          } else {
+            slotEffectDesc = 'CYAN ESSENCE — Gained 15 Essence!';
           }
           break;
         case 'crimson_active':
@@ -573,11 +632,9 @@ export class GameEngine {
       this.battleState.chipsPool += boardModifiers.chipMines[winningNum];
     }
     if (boardModifiers.lifeFountains && boardModifiers.lifeFountains[winningNum] !== undefined) {
-      this.runState.hp = Math.min(this.runState.maxHp, this.runState.hp + boardModifiers.lifeFountains[winningNum]);
+      this.healHp(boardModifiers.lifeFountains[winningNum]);
     }
-    if (boardModifiers.shieldGenerators && boardModifiers.shieldGenerators[winningNum] !== undefined) {
-      this.battleState.playerBlock += boardModifiers.shieldGenerators[winningNum];
-    }
+
     if (boardModifiers.dangerZones && boardModifiers.dangerZones[winningNum] !== undefined) {
       const dangerDmg = boardModifiers.dangerZones[winningNum];
       if (isPointsMode) {
@@ -601,6 +658,12 @@ export class GameEngine {
     const hasStunStrike = this.battleState.activePlayedCards?.some(c => c.effectId === 'STUN_STRIKE');
     if (hasStunStrike && damageDealt >= 5) {
       boardModifiers.enemyStunTurns = (boardModifiers.enemyStunTurns || 0) + 2;
+    }
+
+    // Apply Heavy Nudge failure refund (+15 Essence)
+    const hasHeavyNudge = this.battleState.activePlayedCards?.some(c => c.effectId === 'HEAVY_NUDGE');
+    if (hasHeavyNudge && damageDealt === 0) {
+      this.battleState.chipsPool += 15;
     }
 
     // 4. Insurance Policy Refund Check
@@ -658,6 +721,30 @@ export class GameEngine {
     const mirrorSlots = boardModifiers.mirrorSlots || {};
 
     let damageDealt = 0;
+
+    // Calculate prediction penalty (House notices you cheating)
+    let predictionPenalty = 1.0;
+    if (this.battleState.predictionSector && this.battleState.predictionSector.includes(winningNum)) {
+      const s = this.battleState.predictionSector.length;
+      if (s === 9 || s === 7) {
+        predictionPenalty = 0.3; // 70% penalty
+      } else if (s === 5 || s === 3) {
+        predictionPenalty = 0.5; // 50% penalty
+      } else if (s === 1) {
+        predictionPenalty = 1.0; // 0% penalty
+      } else if (s > 0) {
+        if (s >= 7) predictionPenalty = 0.3;
+        else if (s >= 3) predictionPenalty = 0.5;
+      }
+    }
+
+    // Low rarity physics penalty (70% payout reduction for Common/Uncommon cheats)
+    const activePlayed = this.battleState.activePlayedCards || [];
+    const hasLowRarityPhysics = activePlayed.some(c => 
+      c.type === 'physics' && (c.rarity === 'common' || c.rarity === 'uncommon')
+    );
+    const cheatingPenalty = hasLowRarityPhysics ? 0.3 : 1.0;
+    const finalCheatingMultiplier = Math.min(predictionPenalty, cheatingPenalty);
 
     this.battleState.bets.forEach(bet => {
       let isWin = false;
@@ -721,6 +808,10 @@ export class GameEngine {
         multiplier = boardModifiers.payoutMultipliers.even;
       }
 
+      if (this.battleState?.curse?.id === 'eclipse' && bet.type === 'green') {
+        isWin = false;
+      }
+
       if (isWin) {
         let baseDamage = bet.amount * multiplier;
 
@@ -754,6 +845,9 @@ export class GameEngine {
         if (copperPlates.includes(winningNum)) {
           baseDamage *= 1.5;
         }
+
+        // Apply prediction penalty
+        baseDamage *= finalCheatingMultiplier;
 
         damageDealt += baseDamage;
       }
@@ -789,6 +883,27 @@ export class GameEngine {
     return Math.floor(damageDealt);
   }
 
+  passPlayerTurn() {
+    if (!this.battleState) return;
+    this.battleState.phase = 'resolved';
+    
+    if (this.battleState.activePlayedCards) {
+      this.battleState.activePlayedCards.forEach(c => {
+        (c as any).isLocked = true;
+      });
+    }
+
+    this.battleState.lastSpinResult = {
+      number: 0,
+      color: 'green',
+      betColor: 'green',
+      damageDealt: 0,
+      playerDamageTaken: 0,
+      betsEvaluated: [],
+      cardsActive: [...(this.battleState.activePlayedCards || [])]
+    };
+  }
+
   // Evaluates enemy spin results
   resolveEnemySpin() {
     if (!this.battleState) return;
@@ -809,30 +924,11 @@ export class GameEngine {
 
     if (isWin) {
       if (intent.type === 'attack') {
-        let incomingDmg = intent.value;
-        
-        // Apply block shield first
-        if (this.battleState.playerBlock > 0) {
-          const blocked = Math.min(this.battleState.playerBlock, incomingDmg);
-          incomingDmg -= blocked;
-          this.battleState.playerBlock -= blocked;
-        }
-        
-        playerDamageTaken = incomingDmg;
+        playerDamageTaken = intent.value;
         if (isPointsMode) {
           this.battleState.enemyScore = (this.battleState.enemyScore || 0) + playerDamageTaken;
         } else {
           this.runState.hp = Math.max(0, this.runState.hp - playerDamageTaken);
-        }
-
-        // Aegis Ward reflection check
-        const hasAegisWard = this.battleState.activePlayedCards?.some(c => c.effectId === 'AEGIS_WARD');
-        if (hasAegisWard) {
-          if (isPointsMode) {
-            this.battleState.playerScore = (this.battleState.playerScore || 0) + 4;
-          } else {
-            this.battleState.enemy.hp = Math.max(0, this.battleState.enemy.hp - 4);
-          }
         }
       } else if (intent.type === 'steal_chips') {
         this.battleState.chipsPool = Math.max(0, this.battleState.chipsPool - intent.value);
@@ -860,9 +956,17 @@ export class GameEngine {
     this.battleState.bets = [];
   }
 
-  // Executes enemy turn actions
   resolveEnemyTurn() {
     if (!this.battleState) return;
+
+    if ((this.battleState as any).playerTurnModifiersBackup) {
+      const backup = (this.battleState as any).playerTurnModifiersBackup;
+      this.battleState.physicsModifiers = backup.physicsModifiers;
+      this.battleState.boardModifiers = backup.boardModifiers;
+      this.battleState.predictionSector = backup.predictionSector;
+      delete (this.battleState as any).playerTurnModifiersBackup;
+    }
+
     const isPointsMode = this.runState.combatMode === 'points';
 
     // 1. Check player death (always check, as HP is spent for card costs)
@@ -871,47 +975,119 @@ export class GameEngine {
       return;
     }
 
-    // 2. Perform winner checks based on combat mode
-    if (isPointsMode) {
-      if (this.battleState.turn >= (this.battleState.maxRounds || 3)) {
-        const pScore = this.battleState.playerScore || 0;
-        const eScore = this.battleState.enemyScore || 0;
-        if (pScore > eScore) {
+    // 2. Perform winner checks based on combat mode (if not test mode)
+    if (!(this.battleState as any).isTestCombatMode) {
+      if (isPointsMode) {
+        if (this.battleState.turn >= (this.battleState.maxRounds || 3)) {
+          const pScore = this.battleState.playerScore || 0;
+          const eScore = this.battleState.enemyScore || 0;
+          if (pScore > eScore) {
+            this.handleCombatVictory();
+            return;
+          } else if (pScore < eScore) {
+            this.runState.hp = 0;
+            this.runState.gameState = 'GAME_OVER';
+            return;
+          } else {
+            // Tie! Trigger Sudden Death and extend rounds
+            this.battleState.isSuddenDeath = true;
+            this.battleState.maxRounds = (this.battleState.maxRounds || 3) + 1;
+          }
+        }
+      } else {
+        // Legacy HP Damage mode checks
+        if (this.battleState.enemy.hp <= 0) {
           this.handleCombatVictory();
           return;
-        } else if (pScore < eScore) {
-          this.runState.hp = 0;
-          this.runState.gameState = 'GAME_OVER';
-          return;
-        } else {
-          // Tie! Trigger Sudden Death and extend rounds
-          this.battleState.isSuddenDeath = true;
-          this.battleState.maxRounds = (this.battleState.maxRounds || 3) + 1;
         }
-      }
-    } else {
-      // Legacy HP Damage mode checks
-      if (this.battleState.enemy.hp <= 0) {
-        this.handleCombatVictory();
-        return;
       }
     }
 
-    // RETAIN hand cards across turns! Only discard activePlayedCards
-    if (this.battleState.activePlayedCards) {
-      this.battleState.activePlayedCards.forEach(c => {
-        delete c.markedSlots;
+    // Decay and expire temporary board modifiers FIRST
+    const boardModifiers = this.battleState.boardModifiers;
+    if (boardModifiers.tempDurations) {
+      const keys = Object.keys(boardModifiers.tempDurations);
+      keys.forEach(key => {
+        if (boardModifiers.tempDurations![key] > 0) {
+          boardModifiers.tempDurations![key]--;
+          if (boardModifiers.tempDurations![key] === 0) {
+            const defaultPayout = this.battleState!.playerWheel.payoutMultipliers;
+            if (key === 'greenMultiplier') {
+              boardModifiers.payoutMultipliers.green = defaultPayout.green;
+            } else if (key === 'primeMultiplier') {
+              delete boardModifiers.primeMultiplier;
+            } else if (key === 'highMultiplier') {
+              delete boardModifiers.highMultiplier;
+            } else if (key === 'lowMultiplier') {
+              delete boardModifiers.lowMultiplier;
+            } else if (key === 'evenMultiplier') {
+              boardModifiers.payoutMultipliers.even = defaultPayout.even;
+            } else if (key === 'oddMultiplier') {
+              boardModifiers.payoutMultipliers.odd = defaultPayout.odd;
+            } else if (key === 'dozenMultiplier_1') {
+              if (boardModifiers.dozenMultipliers) delete boardModifiers.dozenMultipliers[1];
+            } else if (key === 'dozenMultiplier_2') {
+              if (boardModifiers.dozenMultipliers) delete boardModifiers.dozenMultipliers[2];
+            } else if (key === 'dozenMultiplier_3') {
+              if (boardModifiers.dozenMultipliers) delete boardModifiers.dozenMultipliers[3];
+            } else if (key === 'singleOutMultiplier') {
+              boardModifiers.payoutMultipliers.number = defaultPayout.number;
+            } else if (key === 'columnMultiplier_1') {
+              if (boardModifiers.columnMultipliers) delete boardModifiers.columnMultipliers[1];
+            } else if (key === 'columnMultiplier_2') {
+              if (boardModifiers.columnMultipliers) delete boardModifiers.columnMultipliers[2];
+            } else if (key === 'columnMultiplier_3') {
+              if (boardModifiers.columnMultipliers) delete boardModifiers.columnMultipliers[3];
+            } else if (key === 'globalMultiplier') {
+              delete boardModifiers.globalMultiplier;
+            } else if (key === 'scarletOverflow' || key === 'onyxEclipse') {
+              boardModifiers.payoutMultipliers.red = defaultPayout.red;
+              boardModifiers.payoutMultipliers.black = defaultPayout.black;
+            } else if (key === 'bloodSpill') {
+              if (boardModifiers.bloodSpillSlots) {
+                boardModifiers.convertNumbersToRed = boardModifiers.convertNumbersToRed.filter(
+                  slot => !boardModifiers.bloodSpillSlots!.includes(slot)
+                );
+                delete boardModifiers.bloodSpillSlots;
+              }
+            }
+            delete boardModifiers.tempDurations![key];
+          }
+        }
       });
-      this.battleState.discardPile.push(...this.battleState.activePlayedCards);
     }
-    this.battleState.activePlayedCards = [];
-    this.battleState.enemy.activeCard = null;
+
+    // Now, filter activePlayedCards: keep active persistent cards, discard expired or instant ones
+    if (this.battleState.activePlayedCards) {
+      const toDiscard: Card[] = [];
+      const toRetain: Card[] = [];
+      
+      this.battleState.activePlayedCards.forEach(c => {
+        // Set isLocked to true because the turn is committed
+        (c as any).isLocked = true;
+        
+        if (this.isCardActive(c)) {
+          toRetain.push(c);
+        } else {
+          delete c.markedSlots;
+          toDiscard.push(c);
+        }
+      });
+      
+      this.battleState.discardPile.push(...toDiscard);
+      this.battleState.activePlayedCards = toRetain;
+    }
 
     // Next turn prep
     this.battleState.turn += 1;
     delete (this.battleState.enemy as any).simulatedHand;
     delete (this.battleState.enemy as any).simulatedPlays;
     delete (this.battleState.enemy as any).lastChosenPlay;
+
+    if (this.battleState.curse?.id === 'curse') {
+      this.runState.hp = Math.max(1, this.runState.hp - 2);
+    }
+
     let chipsGained = 8;
     if ((this.battleState.boardModifiers as any).riskCapitalActive) {
       chipsGained -= 2;
@@ -920,7 +1096,11 @@ export class GameEngine {
       chipsGained -= 2;
       (this.battleState.boardModifiers as any).predictiveSightPlusActive = false; // Reset penalty flag
     }
-    this.battleState.chipsPool += Math.max(0, chipsGained); // Gain base 8 chips per turn (minus penalties)
+    if (this.battleState.curse?.id === 'greed') {
+      this.battleState.chipsPool = 5;
+    } else {
+      this.battleState.chipsPool = 10;
+    }
     this.battleState.phase = 'betting';
     (this.battleState as any).activeWheelOwner = 'player';
     this.battleState.drawsThisTurn = 0;
@@ -937,8 +1117,7 @@ export class GameEngine {
       nudgeCheatActive: false
     };
 
-    // Reset block and prediction for new turn
-    this.battleState.playerBlock = 0;
+    // Reset prediction for new turn
     this.battleState.predictionSector = [];
     this.battleState.predictionOffset = Math.random();
 
@@ -1057,11 +1236,9 @@ export class GameEngine {
 
   createTurnStartBackup() {
     if (!this.battleState) return;
-    this.battleState.activePlayedCards = [];
     this.battleState.turnStartBackup = {
       chipsPool: this.battleState.chipsPool,
       hp: this.runState.hp,
-      playerBlock: this.battleState.playerBlock,
       physicsModifiers: JSON.parse(JSON.stringify(this.battleState.physicsModifiers)),
       boardModifiers: JSON.parse(JSON.stringify(this.battleState.boardModifiers)),
       enemyIntent: JSON.parse(JSON.stringify(this.battleState.enemy.intent)),
@@ -1076,8 +1253,9 @@ export class GameEngine {
 
   updatePrediction() {
     if (!this.battleState) return;
+    const isEnemyWheel = (this.battleState as any).activeWheelOwner === 'enemy';
     if (this.battleState.physicsModifiers.predictionSize > 0) {
-      const activeWheel = (this.battleState as any).activeWheelOwner === 'enemy' ? this.battleState.enemyWheel : this.battleState.playerWheel;
+      const activeWheel = isEnemyWheel ? this.battleState.enemyWheel : this.battleState.playerWheel;
       const winningNumbers = this.getWinningNumbers(activeWheel);
       this.battleState.predictionSector = this.runPredictionDryRun(activeWheel, winningNumbers);
     } else {
@@ -1093,20 +1271,36 @@ export class GameEngine {
     // 1. Assign backup values
     this.battleState.chipsPool = backup.chipsPool;
     this.runState.hp = backup.hp;
-    this.battleState.playerBlock = backup.playerBlock;
     this.battleState.physicsModifiers = JSON.parse(JSON.stringify(backup.physicsModifiers));
     this.battleState.boardModifiers = JSON.parse(JSON.stringify(backup.boardModifiers));
     this.battleState.enemy.intent = JSON.parse(JSON.stringify(backup.enemyIntent));
     this.battleState.playerWheel = JSON.parse(JSON.stringify(backup.playerWheel));
     this.battleState.enemyWheel = JSON.parse(JSON.stringify(backup.enemyWheel));
     
-    // 2. Apply each card
+    // 2. Apply each card played this turn (not locked)
     for (const card of this.battleState.activePlayedCards || []) {
+      if ((card as any).isLocked) continue; // Already baked into starting backup!
       const success = CardHandler.applyEffect(card, this.runState, this.battleState);
       if (!success) {
         return false;
       }
     }
+
+    // Curse overrides
+    if (this.battleState.curse) {
+      const tid = this.battleState.curse.id;
+      if (tid === 'faraday') {
+        this.battleState.physicsModifiers.targetZoneBias = 0;
+        this.battleState.physicsModifiers.biasRedOnly = false;
+        this.battleState.physicsModifiers.biasBlackOnly = false;
+      }
+      if (tid === 'fog') {
+        this.battleState.physicsModifiers.predictionSize = 0;
+      }
+      if (tid === 'rust') {
+        this.battleState.physicsModifiers.friction *= 2.0;
+      }
+      }
     
     // 3. Deduct placed bets
     const betsTotal = this.battleState.bets.reduce((sum, b) => sum + b.amount, 0);
@@ -1173,6 +1367,9 @@ export class GameEngine {
     if (cardIndex === -1) return false;
     
     const card = this.battleState.activePlayedCards[cardIndex];
+    if ((card as any).isLocked) {
+      return false; // Retraction blocked for committed/locked cards
+    }
     
     // Save current state for rollback
     const prevActiveCards = [...this.battleState.activePlayedCards];
@@ -1203,9 +1400,47 @@ export class GameEngine {
       this.battleState.enemy.intent = prevIntent;
       return false;
     }
-    
-    delete card.markedSlots;
     return true;
+  }
+
+  isCardActive(card: Card): boolean {
+    const fightLongEffects = new Set([
+      'CRIMSON_SURGE', 'DARK_FURY', 'LUCKY_SEVEN', 'UNLUCKY_THIRTEEN',
+      'JACKPOT_TRIO', 'DEVILS_TRIO', 'ZERO_HERO', 'EMERALD_FOREST',
+      'LOAN_SHARK', 'ZERO_ECLIPSE', 'MONOCHROME_EYE',
+      'CHIP_MINE', 'LIFE_FOUNTAIN',
+      'DANGER_ZONE', 'MIRROR_SLOT'
+    ]);
+
+    if (fightLongEffects.has(card.effectId)) return true;
+
+    // Check if it has a remaining temporary duration
+    const effectToDurationKey: Record<string, string> = {
+      'GREEN_GREED': 'greenMultiplier',
+      'PRIME_TARGET': 'primeMultiplier',
+      'HIGH_ROLLER': 'highMultiplier',
+      'LOW_SWEEP': 'lowMultiplier',
+      'EVEN_SPLIT': 'evenMultiplier',
+      'ODD_ADVANTAGE': 'oddMultiplier',
+      'FIRST_DOZEN': 'dozenMultiplier_1',
+      'SECOND_DOZEN': 'dozenMultiplier_2',
+      'THIRD_DOZEN': 'dozenMultiplier_3',
+      'SINGLE_OUT': 'singleOutMultiplier',
+      'COLUMN_WAVE': 'columnMultiplier_1',
+      'COLUMN_DRIFT': 'columnMultiplier_2',
+      'COLUMN_APEX': 'columnMultiplier_3',
+      'LUCKY_INDEX': 'globalMultiplier',
+      'SCARLET_OVERFLOW': 'scarletOverflow',
+      'ONYX_ECLIPSE': 'onyxEclipse',
+      'BLOOD_SPILL': 'bloodSpill'
+    };
+
+    const key = effectToDurationKey[card.effectId];
+    if (key && this.battleState?.boardModifiers.tempDurations?.[key] !== undefined) {
+      return this.battleState.boardModifiers.tempDurations[key] > 0;
+    }
+
+    return false;
   }
 
   // --- SHOP AND EVENT INTERACTION ---
@@ -1876,7 +2111,56 @@ export class GameEngine {
     if (!this.battleState) return { betType: 'red', card: null };
     const enemy = this.battleState.enemy;
     const difficulty = enemy.difficulty !== undefined ? enemy.difficulty : 0.5;
-    
+
+    // Back up player modifiers to prevent contamination of enemy turn
+    (this.battleState as any).playerTurnModifiersBackup = {
+      physicsModifiers: JSON.parse(JSON.stringify(this.battleState.physicsModifiers)),
+      boardModifiers: JSON.parse(JSON.stringify(this.battleState.boardModifiers)),
+      predictionSector: this.battleState.predictionSector ? [...this.battleState.predictionSector] : []
+    };
+
+    // Clean enemy default modifiers
+    this.battleState.physicsModifiers = {
+      spinSpeed: 1.0,
+      ballMass: 1.0,
+      friction: 1.0,
+      bounceRandomness: 0.1,
+      wheelTilt: 0,
+      targetZoneBias: 0,
+      predictionSize: 0,
+      nudgeCheatActive: false
+    };
+
+    this.battleState.boardModifiers = {
+      extraGreenSlots: 0,
+      convertNumbersToRed: [],
+      convertNumbersToBlack: [],
+      payoutMultipliers: {
+        red: this.battleState.enemyWheel.payoutMultipliers.red,
+        black: this.battleState.enemyWheel.payoutMultipliers.black,
+        green: this.battleState.enemyWheel.payoutMultipliers.green,
+        number: this.battleState.enemyWheel.payoutMultipliers.number,
+        odd: this.battleState.enemyWheel.payoutMultipliers.odd,
+        even: this.battleState.enemyWheel.payoutMultipliers.even
+      },
+      goldFoils: [],
+      copperPlates: [],
+      tempDurations: {},
+      bloodSpillSlots: []
+    };
+
+    const backupBoard = (this.battleState as any).playerTurnModifiersBackup.boardModifiers;
+    if (backupBoard) {
+      if (backupBoard.dangerZones) {
+        this.battleState.boardModifiers.dangerZones = JSON.parse(JSON.stringify(backupBoard.dangerZones));
+      }
+      if (backupBoard.cursedZones) {
+        this.battleState.boardModifiers.cursedZones = [...backupBoard.cursedZones];
+      }
+    }
+
+    this.battleState.predictionSector = [];
+
     const { hand, allPlays } = this.simulateEnemyPlay();
     
     (enemy as any).simulatedHand = hand;
@@ -1927,15 +2211,36 @@ export class GameEngine {
           wins++;
         }
       });
-      return (wins / predictionSector.length) * payoutMultiplier;
+      const s = predictionSector.length;
+      const activePlayed = this.battleState?.activePlayedCards || [];
+      const hasLowRarityPhysics = activePlayed.some(c => 
+        c.type === 'physics' && (c.rarity === 'common' || c.rarity === 'uncommon')
+      );
+      const cheatingPenalty = hasLowRarityPhysics ? 0.3 : 1.0;
+
+      let penalty = 1.0;
+      if (s === 9 || s === 7) penalty = 0.3;
+      else if (s === 5 || s === 3) penalty = 0.5;
+      else if (s === 1) penalty = 1.0;
+      else if (s > 0) {
+        if (s >= 7) penalty = 0.3;
+        else if (s >= 3) penalty = 0.5;
+      }
+      return (wins / predictionSector.length) * (payoutMultiplier * Math.min(penalty, cheatingPenalty));
     } else {
+      const activePlayed = this.battleState?.activePlayedCards || [];
+      const hasLowRarityPhysics = activePlayed.some(c => 
+        c.type === 'physics' && (c.rarity === 'common' || c.rarity === 'uncommon')
+      );
+      const cheatingPenalty = hasLowRarityPhysics ? 0.3 : 1.0;
+
       let wins = 0;
       wheel.numbers.forEach(num => {
         if (this.isBetWinning(betType, numberValue, num, wheel, boardMods)) {
           wins++;
         }
       });
-      return (wins / totalSlots) * payoutMultiplier;
+      return (wins / totalSlots) * payoutMultiplier * cheatingPenalty;
     }
   }
 

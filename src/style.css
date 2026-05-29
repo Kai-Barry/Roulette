@@ -2012,21 +2012,7 @@ body.debug-ui-active .combat-right {
 }
 
 /* --- BLOCK SHIELD INDICATOR --- */
-.block-indicator {
-  position: absolute;
-  top: 0;
-  right: -8px;
-  background: #1565c0;
-  border: 1px solid #42a5f5;
-  color: #fff;
-  font-size: 10px;
-  font-weight: bold;
-  padding: 2px 6px;
-  border-radius: 2px;
-  font-family: var(--font-mono);
-  box-shadow: 0 0 8px rgba(33, 150, 243, 0.4);
-  z-index: 5;
-}
+
 
 /* --- CODEX BUTTON IN MAIN MENU --- */
 .menu-btn-group {

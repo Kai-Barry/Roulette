@@ -20,7 +20,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   },
   green_greed: {
     name: 'Green Greed',
-    description: 'Green bets deal 50x damage instead of 14x for this spin.',
+    description: 'Green bets deal 50x damage instead of 14x for the next 3 spins.',
     cost: 2,
     type: 'payout',
     rarity: 'rare',
@@ -36,7 +36,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   },
   scarlet_overflow: {
     name: 'Scarlet Overflow',
-    description: 'Red bets deal 3.0x damage, but Black bets deal 1.0x for the next 3 spins.',
+    description: 'Red bets deal 3.0x damage, but Black bets deal 1.0x for the next 5 spins.',
     cost: 1,
     type: 'payout',
     rarity: 'uncommon',
@@ -44,7 +44,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   },
   onyx_eclipse: {
     name: 'Onyx Eclipse',
-    description: 'Black bets deal 3.0x damage, but Red bets deal 1.0x for the next 3 spins.',
+    description: 'Black bets deal 3.0x damage, but Red bets deal 1.0x for the next 5 spins.',
     cost: 1,
     type: 'payout',
     rarity: 'uncommon',
@@ -61,15 +61,15 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   },
   prime_target: {
     name: 'Prime Target',
-    description: 'Prime number bets deal 3.5x damage for this spin.',
-    cost: 1,
+    description: 'Prime number bets deal 3.5x damage for the next 3 spins.',
+    cost: 2,
     type: 'payout',
     rarity: 'uncommon',
     effectId: 'PRIME_TARGET'
   },
   high_roller: {
     name: 'High Roller',
-    description: 'High numbers (19-36) deal 2.5x damage for this spin.',
+    description: 'High numbers (19-36) deal 2.5x damage for the next 3 spins.',
     cost: 1,
     type: 'payout',
     rarity: 'common',
@@ -77,7 +77,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   },
   low_sweep: {
     name: 'Low Sweep',
-    description: 'Low numbers (1-18) deal 2.5x damage for this spin.',
+    description: 'Low numbers (1-18) deal 2.5x damage for the next 3 spins.',
     cost: 1,
     type: 'payout',
     rarity: 'common',
@@ -85,7 +85,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   },
   even_split: {
     name: 'Even Split',
-    description: 'Even numbers deal 2.5x damage for this spin.',
+    description: 'Even numbers deal 2.5x damage for the next 3 spins.',
     cost: 1,
     type: 'payout',
     rarity: 'common',
@@ -93,7 +93,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   },
   odd_advantage: {
     name: 'Odd Advantage',
-    description: 'Odd numbers deal 2.5x damage for this spin.',
+    description: 'Odd numbers deal 2.5x damage for the next 3 spins.',
     cost: 1,
     type: 'payout',
     rarity: 'common',
@@ -101,24 +101,24 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   },
   first_dozen: {
     name: 'First Dozen',
-    description: 'Bets on Dozen 1-12 deal 3.5x damage for this spin.',
-    cost: 1,
+    description: 'Bets on Dozen 1-12 deal 3.5x damage for the next 3 spins.',
+    cost: 2,
     type: 'payout',
     rarity: 'uncommon',
     effectId: 'FIRST_DOZEN'
   },
   second_dozen: {
     name: 'Second Dozen',
-    description: 'Bets on Dozen 13-24 deal 3.5x damage for this spin.',
-    cost: 1,
+    description: 'Bets on Dozen 13-24 deal 3.5x damage for the next 3 spins.',
+    cost: 2,
     type: 'payout',
     rarity: 'uncommon',
     effectId: 'SECOND_DOZEN'
   },
   third_dozen: {
     name: 'Third Dozen',
-    description: 'Bets on Dozen 25-36 deal 3.5x damage for this spin.',
-    cost: 1,
+    description: 'Bets on Dozen 25-36 deal 3.5x damage for the next 3 spins.',
+    cost: 2,
     type: 'payout',
     rarity: 'uncommon',
     effectId: 'THIRD_DOZEN'
@@ -126,7 +126,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   jackpot_trio: {
     name: 'Jackpot Trio',
     description: 'Betting on 7, 11, or 21 deals 250x damage for the rest of the fight.',
-    cost: 2,
+    cost: 3,
     type: 'payout',
     rarity: 'rare',
     effectId: 'JACKPOT_TRIO'
@@ -134,15 +134,15 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   devils_trio: {
     name: "Devil's Trio",
     description: 'Betting on 6, 16, or 26 deals 250x damage for the rest of the fight.',
-    cost: 2,
+    cost: 3,
     type: 'payout',
     rarity: 'rare',
     effectId: 'DEVILS_TRIO'
   },
   single_out: {
     name: 'Single Out',
-    description: 'Single number bets deal 40x damage for this spin.',
-    cost: 1,
+    description: 'Single number bets deal 40x damage for the next 3 spins.',
+    cost: 2,
     type: 'payout',
     rarity: 'common',
     effectId: 'SINGLE_OUT'
@@ -150,31 +150,31 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   double_payout: {
     name: 'Double Payout',
     description: 'Double the next successful number bet payout.',
-    cost: 2,
+    cost: 3,
     type: 'payout',
     rarity: 'uncommon',
     effectId: 'DOUBLE_PAYOUT'
   },
   column_wave: {
     name: 'Column Wave',
-    description: 'Bets on Column 1 deal 4x damage for this spin.',
-    cost: 1,
+    description: 'Bets on Column 1 deal 4x damage for the next 3 spins.',
+    cost: 2,
     type: 'payout',
     rarity: 'uncommon',
     effectId: 'COLUMN_WAVE'
   },
   column_drift: {
     name: 'Column Drift',
-    description: 'Bets on Column 2 deal 4x damage for this spin.',
-    cost: 1,
+    description: 'Bets on Column 2 deal 4x damage for the next 3 spins.',
+    cost: 2,
     type: 'payout',
     rarity: 'uncommon',
     effectId: 'COLUMN_DRIFT'
   },
   column_apex: {
     name: 'Column Apex',
-    description: 'Bets on Column 3 deal 4x damage for this spin.',
-    cost: 1,
+    description: 'Bets on Column 3 deal 4x damage for the next 3 spins.',
+    cost: 2,
     type: 'payout',
     rarity: 'uncommon',
     effectId: 'COLUMN_APEX'
@@ -190,7 +190,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   golden_zero: {
     name: 'Golden Zero',
     description: '0 bets deal 300x damage for the rest of the fight.',
-    cost: 2,
+    cost: 3,
     type: 'payout',
     rarity: 'rare',
     effectId: 'GOLDEN_ZERO'
@@ -199,8 +199,8 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   // Physics Modifiers (25 cards)
   friction_oil: {
     name: 'Friction Oil',
-    description: 'Halves friction for the next spin. Predicts a wide 7-slot landing sector.',
-    cost: 1,
+    description: 'Halves friction for the next spin. Predicts a 7-slot sector (landed slots inside sector suffer a 70% payout penalty).',
+    cost: 2,
     type: 'physics',
     rarity: 'common',
     effectId: 'FRICTION_OIL'
@@ -208,7 +208,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   lead_ball: {
     name: 'Lead Ball',
     description: 'Double ball mass/friction. Bounces less and predicts a 5-slot landing sector.',
-    cost: 1,
+    cost: 2,
     type: 'physics',
     rarity: 'uncommon',
     effectId: 'LEAD_BALL'
@@ -216,23 +216,23 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   table_tilt: {
     name: 'Wheel Tilt',
     description: 'Slightly tilts the roulette wheel, pulling the ball and predicting a 5-slot landing sector.',
-    cost: 1,
+    cost: 2,
     type: 'physics',
     rarity: 'common',
     effectId: 'WHEEL_TILT'
   },
   magnetic_force: {
     name: 'Lodestone Magnet',
-    description: 'Magnetically pulls the ball. Grants 90% bias to land in a slot you have placed a bet on.',
-    cost: 3,
+    description: 'Grants 90% magnetic bias to land on a bet slot.',
+    cost: 4,
     type: 'physics',
     rarity: 'rare',
     effectId: 'LODESTONE_MAGNET'
   },
   predictive_sight: {
     name: 'Predictive Sight',
-    description: 'Runs high-accuracy visual simulation, predicting a tight 3-slot sector.',
-    cost: 2,
+    description: 'Predicts a 3-slot sector (landed slots inside sector suffer a 50% payout penalty).',
+    cost: 3,
     type: 'physics',
     rarity: 'uncommon',
     effectId: 'PREDICTIVE_SIGHT'
@@ -240,15 +240,15 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   nudge_cheat: {
     name: 'Nudge Cheat',
     description: 'Magnets shift outcome by up to ±3 slots towards bets to force a win.',
-    cost: 2,
+    cost: 3,
     type: 'physics',
     rarity: 'rare',
     effectId: 'NUDGE_CHEAT'
   },
   ice_glaze: {
     name: 'Ice Glaze',
-    description: 'Reduces wheel friction to 0.1 for this spin. Predicts a wide 9-slot sector.',
-    cost: 0,
+    description: 'Reduces wheel friction to 0.1. Predicts a 9-slot sector (landed slots inside sector suffer a 70% payout penalty).',
+    cost: 2,
     type: 'physics',
     rarity: 'common',
     effectId: 'ICE_GLAZE'
@@ -335,24 +335,24 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   },
   eagle_eye: {
     name: 'Eagle Eye',
-    description: 'Runs absolute-accuracy visual simulation, predicting a pinpoint 1-slot sector.',
-    cost: 3,
+    description: 'Predicts a pinpoint 1-slot sector. Draw 1 card.',
+    cost: 4,
     type: 'physics',
     rarity: 'rare',
     effectId: 'EAGLE_EYE'
   },
   omniscience: {
     name: 'Omniscience',
-    description: 'Runs perfect-accuracy simulation, predicting a pinpoint 1-slot sector and dealing 3x damage.',
-    cost: 4,
+    description: 'Predicts a pinpoint 1-slot sector and deals 3x damage. Draw 2 cards and gain +3 actions (+12 Essence).',
+    cost: 5,
     type: 'physics',
     rarity: 'legendary',
     effectId: 'OMNISCIENCE'
   },
   broad_vision: {
     name: 'Broad Vision',
-    description: 'Highlights a wide 9-slot sector.',
-    cost: 0,
+    description: 'Highlights a wide 9-slot sector (landed slots inside sector suffer a 70% payout penalty).',
+    cost: 2,
     type: 'physics',
     rarity: 'common',
     effectId: 'BROAD_VISION'
@@ -360,7 +360,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   focus_sight: {
     name: 'Focus Sight',
     description: 'Highlights a 5-slot sector.',
-    cost: 1,
+    cost: 2,
     type: 'physics',
     rarity: 'common',
     effectId: 'FOCUS_SIGHT'
@@ -375,8 +375,8 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   },
   heavy_nudge: {
     name: 'Heavy Nudge',
-    description: 'Shifts outcome by up to ±5 slots to force a bet win.',
-    cost: 3,
+    description: 'Shifts outcome by up to ±5 slots to force a bet win. Gain 15 Essence on failure.',
+    cost: 4,
     type: 'physics',
     rarity: 'legendary',
     effectId: 'HEAVY_NUDGE'
@@ -426,7 +426,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   crimson_deluge: {
     name: 'Crimson Deluge',
     description: 'Converts numbers 1 to 18 into Red on the wheel (half the wheel).',
-    cost: 3,
+    cost: 4,
     type: 'board',
     rarity: 'rare',
     effectId: 'CRIMSON_DELUGE'
@@ -434,7 +434,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   onyx_tsunami: {
     name: 'Onyx Tsunami',
     description: 'Converts numbers 19 to 36 into Black on the wheel (half the wheel).',
-    cost: 3,
+    cost: 4,
     type: 'board',
     rarity: 'rare',
     effectId: 'ONYX_TSUNAMI'
@@ -442,7 +442,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   jade_path: {
     name: 'Jade Path',
     description: 'Adds 4 extra Green slots (0, 5, 11, 17, 22, and 29 are Green).',
-    cost: 3,
+    cost: 5,
     type: 'board',
     rarity: 'rare',
     effectId: 'JADE_PATH'
@@ -466,7 +466,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   emerald_forest: {
     name: 'Emerald Forest',
     description: 'Converts all prime numbers to Green and doubles Green payouts for this fight.',
-    cost: 4,
+    cost: 5,
     type: 'board',
     rarity: 'legendary',
     effectId: 'EMERALD_FOREST'
@@ -481,7 +481,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   },
   blood_spill: {
     name: 'Blood Spill',
-    description: 'Converts the next 3 numbers the ball passes during spinning to Red.',
+    description: 'Converts 3 random wheel slots to Red for the next 5 spins.',
     cost: 2,
     type: 'board',
     rarity: 'uncommon',
@@ -506,7 +506,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   lucky_zone: {
     name: 'Lucky Zone',
     description: 'Mark a 3-slot zone on the board; bets on this zone deal +1.5x damage.',
-    cost: 1,
+    cost: 2,
     type: 'board',
     rarity: 'uncommon',
     effectId: 'LUCKY_ZONE'
@@ -514,7 +514,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   cursed_zone: {
     name: 'Cursed Zone',
     description: 'Mark a 5-slot zone; if ball lands here, enemy is stunned for 2 turns.',
-    cost: 2,
+    cost: 3,
     type: 'board',
     rarity: 'rare',
     effectId: 'CURSED_ZONE'
@@ -522,20 +522,13 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   chip_mine: {
     name: 'Chip Mine',
     description: 'Mark a number slot. If ball lands here, gain 15 chips.',
-    cost: 1,
+    cost: 2,
     type: 'board',
     rarity: 'uncommon',
     effectId: 'CHIP_MINE'
   },
 
-  shield_generator: {
-    name: 'Shield Generator',
-    description: 'Mark a number slot. If ball lands here, gain 12 Block next turn.',
-    cost: 1,
-    type: 'board',
-    rarity: 'uncommon',
-    effectId: 'SHIELD_GENERATOR'
-  },
+
   zero_eclipse: {
     name: 'Zero Eclipse',
     description: '0 becomes a Black slot, and its payout becomes Red.',
@@ -563,7 +556,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   danger_zone: {
     name: 'Danger Zone',
     description: 'Converts 5 slots into red spikes. If enemy lands there, they take 50 flat damage.',
-    cost: 2,
+    cost: 3,
     type: 'board',
     rarity: 'rare',
     effectId: 'DANGER_ZONE'
@@ -571,7 +564,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   gold_foil: {
     name: 'Gold Foil',
     description: 'Mark 1 slot. Landing there multiplies that slot\'s damage by 10x.',
-    cost: 2,
+    cost: 4,
     type: 'board',
     rarity: 'legendary',
     effectId: 'GOLD_FOIL'
@@ -584,14 +577,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
     rarity: 'common',
     effectId: 'COPPER_PLATE'
   },
-  void_hole: {
-    name: 'Void Hole',
-    description: 'Mark 1 slot. Landing there destroys all opponent block.',
-    cost: 1,
-    type: 'board',
-    rarity: 'uncommon',
-    effectId: 'VOID_HOLE'
-  },
+
 
   // Utility / Risk Modifiers (25 cards)
 
@@ -611,18 +597,11 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
     rarity: 'common',
     effectId: 'CALM_SPIN'
   },
-  scrap_shield: {
-    name: 'Scrap Shield',
-    description: 'Gain 5 Block. Block shields you from incoming enemy damage this turn.',
-    cost: 1,
-    type: 'utility',
-    rarity: 'common',
-    effectId: 'SCRAP_SHIELD'
-  },
+
   essence_recycle: {
     name: 'Identity Shift',
     description: 'Discard a card from your hand to draw 1 card for 0 cost.',
-    cost: 0,
+    cost: 1,
     type: 'utility',
     rarity: 'uncommon',
     effectId: 'ESSENCE_RECYCLE'
@@ -647,35 +626,12 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   compound_interest: {
     name: 'Compound Interest',
     description: 'Gain chips equal to 50% of your current chip pool.',
-    cost: 1,
+    cost: 2,
     type: 'utility',
     rarity: 'uncommon',
     effectId: 'COMPOUND_INTEREST'
   },
-  steel_barricade: {
-    name: 'Steel Barricade',
-    description: 'Gain 12 Block.',
-    cost: 2,
-    type: 'utility',
-    rarity: 'uncommon',
-    effectId: 'STEEL_BARRICADE'
-  },
-  fortress_shield: {
-    name: 'Fortress Shield',
-    description: 'Gain 60 Block.',
-    cost: 3,
-    type: 'utility',
-    rarity: 'rare',
-    effectId: 'FORTRESS_SHIELD'
-  },
-  aegis_ward: {
-    name: 'Aegis Ward',
-    description: 'Gain 8 Block. If opponent hits you, reflect 4 damage.',
-    cost: 2,
-    type: 'utility',
-    rarity: 'uncommon',
-    effectId: 'AEGIS_WARD'
-  },
+
 
   quick_draw: {
     name: 'Quick Draw',
@@ -688,7 +644,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   heavy_draw: {
     name: 'Heavy Draw',
     description: 'Draw 3 cards, but discard 1 card.',
-    cost: 1,
+    cost: 2,
     type: 'utility',
     rarity: 'uncommon',
     effectId: 'HEAVY_DRAW'
@@ -712,7 +668,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   golden_mirror: {
     name: 'Golden Mirror',
     description: 'Choose 1 card; add 2 temporary copies of it to hand with 0 cost.',
-    cost: 2,
+    cost: 3,
     type: 'utility',
     rarity: 'rare',
     effectId: 'GOLDEN_MIRROR'
@@ -760,7 +716,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   adrenaline_rush: {
     name: 'Adrenaline Rush',
     description: 'Gain +3 actions/card plays this turn.',
-    cost: 2,
+    cost: 3,
     type: 'utility',
     rarity: 'legendary',
     effectId: 'ADRENALINE_RUSH'
@@ -768,7 +724,7 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
   lucky_charm: {
     name: 'Lucky Charm',
     description: 'Next spin outcome has 100% chance to be rerolled if it would result in a miss.',
-    cost: 2,
+    cost: 3,
     type: 'utility',
     rarity: 'legendary',
     effectId: 'LUCKY_CHARM'
@@ -815,7 +771,7 @@ export function createStarterDeck(): Card[] {
     getCardById('table_tilt'),
     getCardById('crimson_flood'),
     getCardById('abyssal_darkness'),
-    getCardById('scrap_shield'),
+    getCardById('quick_draw'),
     getCardById('slow_spin'),
     getCardById('lead_ball'),
     getCardById('magnetic_force'),

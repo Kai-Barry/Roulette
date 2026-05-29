@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GameEngine } from '../core/GameEngine';
 import { WheelVisual, CardVisual, EnemyVisual, ForgeCardVisual, ShopItemVisual, EventChoiceVisual } from './WheelVisual';
 import { PS1Shader } from './PS1Shader';
-import { Card, WheelConfig, BoardUpgrade, BoardModifiers } from '../core/Types';
+import { Card, WheelConfig, BoardUpgrade, BoardModifiers, Curse } from '../core/Types';
 import { getSlotColor } from '../physics/RoulettePhysics';
 import { SoundManager } from '../ui/SoundManager';
 import { BOARD_UPGRADES } from '../core/WheelUpgrades';
@@ -67,6 +67,8 @@ export class RenderManager {
   cardVisuals: CardVisual[] = [];
   hoveredCardId: string | null = null;
   selectedCardId: string | null = null;
+  private heldCardId: string | null = null;
+  private heldCardTimer: any = null;
   
   playedCardVisuals: CardVisual[] = [];
   playedCardsGroup!: THREE.Group;
@@ -136,6 +138,8 @@ export class RenderManager {
 
   // Texture force upload tracking
   private wasInBattle = false;
+  private curseGroup: THREE.Group | null = null;
+  private lastCurseId: string | null = null;
 
   // Opponent action animation
   oppActionCardMesh: THREE.Mesh | null = null;
@@ -297,8 +301,9 @@ export class RenderManager {
     const battle = this.engine.battleState;
     if (!battle) return;
     
-    this.wheelVis.rebuildWheel(false, battle.playerWheel, battle.predictionSector, battle.boardModifiers);
-    this.enemyWheelVis.rebuildWheel(true, battle.enemyWheel, [], battle.boardModifiers);
+    const isEnemyOwner = battle.activeWheelOwner === 'enemy';
+    this.wheelVis.rebuildWheel(false, battle.playerWheel, isEnemyOwner ? [] : (battle.predictionSector || []), battle.boardModifiers);
+    this.enemyWheelVis.rebuildWheel(true, battle.enemyWheel, isEnemyOwner ? (battle.predictionSector || []) : [], battle.boardModifiers);
     this.enemyVis.rebuildEnemy(battle.enemy.spriteName);
     
     // Also reset active states
@@ -325,6 +330,158 @@ export class RenderManager {
         map: this.createFeltTexture(true, battle.boardModifiers),
         fog: false
       });
+    }
+  }
+
+  updateCurseVisual() {
+    const battle = this.engine.battleState;
+    const activeCurse = battle?.curse;
+    const curseId = activeCurse ? activeCurse.id : null;
+
+    if (curseId === this.lastCurseId) {
+      return;
+    }
+    this.lastCurseId = curseId;
+
+    // Remove old curse visual
+    if (this.curseGroup) {
+      this.scene.remove(this.curseGroup);
+      this.curseGroup.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+            else child.material.dispose();
+          }
+        }
+      });
+      this.curseGroup = null;
+    }
+
+    if (!activeCurse || !curseId) {
+      return;
+    }
+
+    // Create new curse visual
+    this.curseGroup = new THREE.Group();
+    this.curseGroup.position.set(0.45, 0.005, -2.35); // Next to the opponent
+    this.scene.add(this.curseGroup);
+
+    // 1. Pedestal (creepy dark stone altar)
+    const pedGeo = new THREE.CylinderGeometry(0.08, 0.09, 0.1, 8);
+    const pedMat = new THREE.MeshPhongMaterial({ color: 0x110c08, shininess: 5 });
+    const pedestal = new THREE.Mesh(pedGeo, pedMat);
+    pedestal.position.y = 0.05;
+    pedestal.castShadow = true;
+    pedestal.receiveShadow = true;
+    this.curseGroup.add(pedestal);
+
+    // 2. The Curse object itself floating above the pedestal
+    const coreGroup = new THREE.Group();
+    coreGroup.position.y = 0.22;
+    coreGroup.name = "curseCore";
+    this.curseGroup.add(coreGroup);
+
+    // Build custom geometry based on curse ID
+    if (curseId === 'faraday') {
+      const rodGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.14, 6);
+      const rodMat = new THREE.MeshStandardMaterial({ color: 0xb87333, metalness: 0.9, roughness: 0.1 });
+      const rod = new THREE.Mesh(rodGeo, rodMat);
+      coreGroup.add(rod);
+
+      for (let i = 0; i < 3; i++) {
+        const ringGeo = new THREE.TorusGeometry(0.04, 0.006, 4, 12);
+        const ringMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9, roughness: 0.1 });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = Math.PI / 2 + (i - 1) * 0.4;
+        ring.rotation.y = (i - 1) * 0.3;
+        ring.name = `ring_${i}`;
+        coreGroup.add(ring);
+      }
+    } else if (curseId === 'fog') {
+      const ballGeo = new THREE.SphereGeometry(0.04, 8, 8);
+      const ballMat = new THREE.MeshPhongMaterial({ color: 0x333333, emissive: 0x111111, transparent: true, opacity: 0.85 });
+      const ball = new THREE.Mesh(ballGeo, ballMat);
+      coreGroup.add(ball);
+
+      for (let i = 0; i < 4; i++) {
+        const dotGeo = new THREE.BoxGeometry(0.01, 0.01, 0.01);
+        const dotMat = new THREE.MeshBasicMaterial({ color: 0x777777 });
+        const dot = new THREE.Mesh(dotGeo, dotMat);
+        const angle = (i / 4) * Math.PI * 2;
+        dot.position.set(Math.cos(angle) * 0.06, (Math.random() - 0.5) * 0.06, Math.sin(angle) * 0.06);
+        dot.name = `dot_${i}`;
+        coreGroup.add(dot);
+      }
+    } else if (curseId === 'rust') {
+      const gearGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.02, 5);
+      const gearMat = new THREE.MeshPhongMaterial({ color: 0x8b4513, shininess: 2 });
+      const gear = new THREE.Mesh(gearGeo, gearMat);
+      gear.rotation.x = Math.PI / 2;
+      coreGroup.add(gear);
+
+      const smallGearGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.015, 5);
+      const smallGear = new THREE.Mesh(smallGearGeo, gearMat);
+      smallGear.position.set(0.03, 0.03, 0.02);
+      smallGear.rotation.x = Math.PI / 2;
+      smallGear.name = "smallGear";
+      coreGroup.add(smallGear);
+    } else if (curseId === 'greed') {
+      const coin1 = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.01, 0.035), new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.1 }));
+      coin1.position.set(-0.01, -0.02, 0.01);
+      coin1.rotation.y = 0.5;
+      coreGroup.add(coin1);
+
+      const coin2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.012, 0.03), new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.5, roughness: 0.8 }));
+      coin2.position.set(0.01, 0.01, -0.01);
+      coin2.rotation.y = -0.4;
+      coreGroup.add(coin2);
+    } else if (curseId === 'avarice') {
+      const innerRing = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.005, 4, 10), new THREE.MeshPhongMaterial({ color: 0xcc1111 }));
+      innerRing.name = "innerRing";
+      const outerRing = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.005, 4, 10), new THREE.MeshPhongMaterial({ color: 0x1111cc }));
+      outerRing.rotation.y = Math.PI / 2;
+      outerRing.name = "outerRing";
+      coreGroup.add(innerRing);
+      coreGroup.add(outerRing);
+    } else if (curseId === 'fragile') {
+      const jarBase = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 0.06, 6), new THREE.MeshPhongMaterial({ color: 0x8b5a2b }));
+      jarBase.position.y = -0.02;
+      coreGroup.add(jarBase);
+      const jarNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.025, 0.04, 6), new THREE.MeshPhongMaterial({ color: 0x8b5a2b }));
+      jarNeck.position.y = 0.03;
+      coreGroup.add(jarNeck);
+    } else if (curseId === 'eclipse') {
+      const moon = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 6), new THREE.MeshBasicMaterial({ color: 0x111111 }));
+      coreGroup.add(moon);
+
+      const crescent = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.004, 3, 12, Math.PI * 1.5), new THREE.MeshBasicMaterial({ color: 0xff3300 }));
+      crescent.rotation.x = Math.PI / 4;
+      crescent.name = "crescent";
+      coreGroup.add(crescent);
+    } else if (curseId === 'curse') {
+      const spikeMat = new THREE.MeshPhongMaterial({ color: 0xaa1111, shininess: 80 });
+      for (let i = 0; i < 3; i++) {
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.015, 0.09, 4), spikeMat);
+        spike.position.set((i - 1) * 0.02, 0, 0);
+        spike.rotation.set((i - 1) * 0.5, 0, (i - 1) * 0.3);
+        spike.name = `spike_${i}`;
+        coreGroup.add(spike);
+      }
+    } else if (curseId === 'lead') {
+      const mono = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.09, 0.035), new THREE.MeshPhongMaterial({ color: 0x55555c, shininess: 5 }));
+      mono.rotation.y = 0.3;
+      coreGroup.add(mono);
+    } else if (curseId === 'choked') {
+      const cageMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8, roughness: 0.2 });
+      for (let i = 0; i < 2; i++) {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.004, 4, 8), cageMat);
+        ring.rotation.x = Math.PI / 2;
+        ring.rotation.y = i * (Math.PI / 2);
+        ring.position.y = (i - 0.5) * 0.02;
+        ring.name = `cage_${i}`;
+        coreGroup.add(ring);
+      }
     }
   }
 
@@ -1431,7 +1588,8 @@ export class RenderManager {
     const rowHeight = 300 / 3;
 
     // Get prediction sector if available
-    const predictionSector = (!isEnemy && battle) ? (battle.predictionSector || []) : [];
+    const isEnemyOwner = battle && battle.activeWheelOwner === 'enemy';
+    const predictionSector = (battle && (isEnemy === isEnemyOwner)) ? (battle.predictionSector || []) : [];
 
     // 2. Draw Green Sector (usually contains 0)
     ctx.fillStyle = '#4caf50';
@@ -1439,12 +1597,24 @@ export class RenderManager {
     ctx.lineWidth = 3;
     ctx.strokeRect(40, 40, 120, 300);
 
-    // Write Green text inside sector
+    // Write Green text inside sector, stacked vertically if there are multiple green slots to prevent clipping
+    const greenNums = activeWheel.greenNumbers;
     ctx.fillStyle = '#ffffff';
-    ctx.font = activeWheel.greenNumbers.length > 2 ? 'bold 28px "Courier Prime", monospace' : 'bold 72px "Courier Prime", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(activeWheel.greenNumbers.join('/'), 100, 190);
+    if (greenNums.length === 1) {
+      ctx.font = 'bold 72px "Courier Prime", monospace';
+      ctx.fillText(greenNums[0].toString(), 100, 190);
+    } else {
+      const fontSize = greenNums.length > 3 ? 24 : (greenNums.length === 2 ? 40 : 32);
+      ctx.font = `bold ${fontSize}px "Courier Prime", monospace`;
+      const startY = 40;
+      const height = 300;
+      const step = height / (greenNums.length + 1);
+      for (let k = 0; k < greenNums.length; k++) {
+        ctx.fillText(greenNums[k].toString(), 100, startY + step * (k + 1));
+      }
+    }
 
     // Highlight green sector if prediction is active and at least one green number is predicted
     if (predictionSector.length > 0 && activeWheel.greenNumbers.some((n: number) => predictionSector.includes(n))) {
@@ -1707,12 +1877,17 @@ export class RenderManager {
       ctx.fillText(`(${payoutVal}x)`, xStart + width / 2, outY2 + 45);
     }
 
-    // Add grime / grunge overlay (opacity reduced to 0.12 for better clarity)
+    // Add grime / grunge overlay with stable seeded pseudo-random values to prevent flashing on rebuild
+    let splotchSeed = isEnemy ? 999 : 444;
+    const splotchRandom = () => {
+      const x = Math.sin(splotchSeed++) * 10000;
+      return x - Math.floor(x);
+    };
     ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
     for (let i = 0; i < 40; i++) {
-      const rx = Math.random() * 1024;
-      const ry = Math.random() * 512;
-      const rSize = 10 + Math.random() * 40;
+      const rx = splotchRandom() * 1024;
+      const ry = splotchRandom() * 512;
+      const rSize = 10 + splotchRandom() * 40;
       ctx.beginPath();
       ctx.arc(rx, ry, rSize, 0, Math.PI * 2);
       ctx.fill();
@@ -2053,6 +2228,7 @@ export class RenderManager {
 
       if (this.activeView === 4) {
         this.isDraggingOverview = true;
+        return;
       }
 
       if (this.ui && this.ui.mobileModeActive && this.activeView === 2) {
@@ -2124,17 +2300,27 @@ export class RenderManager {
         return;
       }
 
-      // 1. Check card hits (only interactive in Cards view)
-      if (this.activeView === 1) {
+      if (this.heldCardTimer) {
+        clearTimeout(this.heldCardTimer);
+        this.heldCardTimer = null;
+      }
+      this.heldCardId = null;
+
+      // 1. Check card hits (interactive in Cards view, and Board view)
+      if (this.activeView === 1 || this.activeView === 2) {
         let hitCardId: string | null = null;
-        if (this.ui && this.ui.mobileModeActive) {
-          const meshes = this.cardVisuals.map(cv => cv.mesh);
-          const intersects = this.raycaster.intersectObjects(meshes);
-          if (intersects.length > 0) {
-            hitCardId = intersects[0].object.userData.cardId;
-          }
+        if (this.activeView === 2) {
+          hitCardId = this.raycastCardsInCurrentState();
         } else {
-          hitCardId = this.raycastCardsAtRest();
+          if (this.ui && this.ui.mobileModeActive) {
+            const meshes = this.cardVisuals.map(cv => cv.mesh);
+            const intersects = this.raycaster.intersectObjects(meshes);
+            if (intersects.length > 0) {
+              hitCardId = intersects[0].object.userData.cardId;
+            }
+          } else {
+            hitCardId = this.raycastCardsAtRest();
+          }
         }
         if (hitCardId) {
           pressedCardId = hitCardId;
@@ -2142,13 +2328,25 @@ export class RenderManager {
           isPressedOnBell = false;
           isPressedOnPlayedCard = false;
           isPressedOnDrawDeck = false;
+
+          // Start hold timer to zoom card ONLY in Board View (2)
+          if (this.activeView === 2) {
+            this.heldCardTimer = setTimeout(() => {
+              this.heldCardId = hitCardId;
+              if (this.sound) this.sound.playCardSwoosh();
+            }, 200);
+          }
+
           return;
         }
       }
 
       // Check played card hits on the table (active in views 1, 2, 4)
       if (this.activeView === 1 || this.activeView === 2 || this.activeView === 4) {
-        const playedCardMeshes = this.playedCardVisuals.map(cv => cv.mesh);
+        const playedCardMeshes = this.playedCardVisuals.map(cv => {
+          cv.mesh.updateMatrixWorld(true);
+          return cv.mesh;
+        });
         const playedCardIntersects = this.raycaster.intersectObjects(playedCardMeshes);
         if (playedCardIntersects.length > 0) {
           pressedCardId = playedCardIntersects[0].object.userData.cardId;
@@ -2217,7 +2415,7 @@ export class RenderManager {
       if (this.ui && this.ui.mobileModeActive) {
         if (this.isDraggingBoard && this.activeView === 2) {
           const diffX = e.clientX - startX;
-          this.boardHorizontalOffset = Math.max(-0.45, Math.min(0.45, this.dragStartOffset - diffX * 0.0025));
+          this.boardHorizontalOffset = Math.max(-0.8, Math.min(0.5, this.dragStartOffset - diffX * 0.0025));
         }
         return; // Disable 3D chip dragging in mobile mode
       }
@@ -2226,6 +2424,11 @@ export class RenderManager {
       if (isForge) return;
 
       const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+
+      if (this.heldCardTimer && dist > 10) {
+        clearTimeout(this.heldCardTimer);
+        this.heldCardTimer = null;
+      }
 
       if (pressedSourceDenom > 0 && dist > 5 && !this.isDragging) {
         this.isDragging = true;
@@ -2261,8 +2464,26 @@ export class RenderManager {
     });
 
     this.container.addEventListener('pointerup', (e) => {
+      if (this.heldCardTimer) {
+        clearTimeout(this.heldCardTimer);
+        this.heldCardTimer = null;
+      }
+
+      if (this.heldCardId) {
+        this.heldCardId = null;
+        pressedCardId = null;
+        this.isDraggingBoard = false;
+        this.isDraggingOverview = false;
+        return;
+      }
+
       this.isDraggingBoard = false;
       this.isDraggingOverview = false;
+
+      if (this.activeView === 4) {
+        return;
+      }
+
       const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
       const state = this.engine.runState;
       const isForge = state.gameState === 'FORGE';
@@ -2401,7 +2622,7 @@ export class RenderManager {
         this.isDragging = false;
         this.activeHoveredCell = null;
       } else {
-        const clickThreshold = (this.ui && this.ui.mobileModeActive) ? 8 : 5;
+        const clickThreshold = (this.ui && this.ui.mobileModeActive) ? 8 : 12;
         if (dist <= clickThreshold) {
           if (isPressedOnDrawDeck) {
             const success = this.engine.buyCardDraw();
@@ -2413,7 +2634,17 @@ export class RenderManager {
             }
           } else if (this.ui && this.ui.mobileModeActive && (this.activeView === 2 || this.activeView === 9)) {
             // Mobile Click-to-Bet logic
-            if (pressedSourceDenom > 0) {
+            if (pressedCardId) {
+              if (isPressedOnPlayedCard) {
+                if (this.onPlayedCardClicked) {
+                  this.onPlayedCardClicked(pressedCardId);
+                }
+              } else {
+                if (this.onCardClicked) {
+                  this.onCardClicked(pressedCardId);
+                }
+              }
+            } else if (pressedSourceDenom > 0) {
               this.ui.currentBetAmount = pressedSourceDenom;
               this.sound.playRouletteClick(0.8);
               this.ui.render();
@@ -2544,17 +2775,42 @@ export class RenderManager {
       return isPlayed;
     });
 
-    // 2. Add visual cards that are newly played
+    // 2. Add visual cards that are newly played, and update persistent banners
     const isPointsModePlay = this.engine.runState.combatMode === 'points';
+    const effectToDurationKey: Record<string, string> = {
+      'GREEN_GREED': 'greenMultiplier',
+      'PRIME_TARGET': 'primeMultiplier',
+      'HIGH_ROLLER': 'highMultiplier',
+      'LOW_SWEEP': 'lowMultiplier',
+      'EVEN_SPLIT': 'evenMultiplier',
+      'ODD_ADVANTAGE': 'oddMultiplier',
+      'FIRST_DOZEN': 'dozenMultiplier_1',
+      'SECOND_DOZEN': 'dozenMultiplier_2',
+      'THIRD_DOZEN': 'dozenMultiplier_3',
+      'SINGLE_OUT': 'singleOutMultiplier',
+      'COLUMN_WAVE': 'columnMultiplier_1',
+      'COLUMN_DRIFT': 'columnMultiplier_2',
+      'COLUMN_APEX': 'columnMultiplier_3',
+      'LUCKY_INDEX': 'globalMultiplier',
+      'SCARLET_OVERFLOW': 'scarletOverflow',
+      'ONYX_ECLIPSE': 'onyxEclipse',
+      'BLOOD_SPILL': 'bloodSpill'
+    };
+
     cards.forEach(card => {
-      const exists = this.playedCardVisuals.some(cv => cv.mesh.userData.cardId === card.id);
-      if (!exists) {
-        const cv = new CardVisual(card, isPointsModePlay);
+      let cv = this.playedCardVisuals.find(v => v.mesh.userData.cardId === card.id);
+      if (!cv) {
+        cv = new CardVisual(card, isPointsModePlay);
         cv.mesh.position.set(0, 0.006, 0.85);
         cv.mesh.rotation.set(-Math.PI / 2, 0, 0);
         this.playedCardsGroup.add(cv.mesh);
         this.playedCardVisuals.push(cv);
       }
+      
+      const tempDurations = this.engine.battleState?.boardModifiers.tempDurations || {};
+      const durKey = effectToDurationKey[card.effectId];
+      const turnsLeft = durKey ? tempDurations[durKey] : undefined;
+      cv.updatePersistentState(turnsLeft);
     });
   }
 
@@ -2908,18 +3164,33 @@ export class RenderManager {
       let ry = 0.0;
       let rz = 0.0;
 
-      if (isHovered && this.activeView === 1) {
+      const isHeld = cv.mesh.userData.cardId === this.heldCardId;
+
+      if (isHeld) {
+        tx = 0.0;
+        ty = 0.12;
+        tz = -0.12;
+        rx = 0.05;
+        ry = 0.0;
+        rz = 0.0;
+        cv.targetPosition.set(tx, ty, tz);
+        cv.targetRotation.set(rx, ry, rz);
+        cv.mesh.userData.targetScale = new THREE.Vector3(0.9, 0.9, 0.9);
+      } else if (isHovered && this.activeView === 1) {
         tx = 0.0;
         ty = 0.0;
         tz = -0.13;
         rx = 0.0;
         rz = 0.0;
         ry = 0.0;
+        cv.targetPosition.set(tx, ty, tz);
+        cv.targetRotation.set(rx, ry, rz);
+        cv.mesh.userData.targetScale = null;
+      } else {
+        cv.targetPosition.set(tx, ty, tz);
+        cv.targetRotation.set(rx, ry, rz);
+        cv.mesh.userData.targetScale = null;
       }
-
-      cv.targetPosition.set(tx, ty, tz);
-      cv.targetRotation.set(rx, ry, rz);
-      cv.mesh.userData.targetScale = null;
     });
   }
 
@@ -2963,8 +3234,20 @@ export class RenderManager {
     return null;
   }
 
+  private raycastCardsInCurrentState(): string | null {
+    const meshes = this.cardVisuals.map(cv => {
+      cv.mesh.updateMatrixWorld(true);
+      return cv.mesh;
+    });
+    const intersects = this.raycaster.intersectObjects(meshes);
+    if (intersects.length > 0) {
+      return intersects[0].object.userData.cardId;
+    }
+    return null;
+  }
+
   private performRaycasting() {
-    if (this.mouse.x === -999 || this.activeView !== 1) {
+    if (this.mouse.x === -999 || (this.activeView !== 1 && !(this.activeView === 2 && this.ui && this.ui.mobileModeActive))) {
       this.hoveredCardId = null;
       return;
     }
@@ -3129,6 +3412,59 @@ export class RenderManager {
 
     // Update animations of independent scene visual nodes
     this.enemyVis.update(sec);
+    this.updateCurseVisual();
+
+    if (this.curseGroup) {
+      const core = this.curseGroup.getObjectByName("curseCore");
+      if (core) {
+        // Soft hover animation
+        core.position.y = 0.22 + Math.sin(sec * 1.5) * 0.02;
+        // Slow rotation
+        core.rotation.y += 0.01;
+        
+        // Custom sub-mesh animations based on curse ID
+        const activeCurse = this.engine.battleState?.curse;
+        if (activeCurse) {
+          const cid = activeCurse.id;
+          if (cid === 'faraday') {
+            for (let i = 0; i < 3; i++) {
+              const r = core.getObjectByName(`ring_${i}`);
+              if (r) r.rotation.z += 0.02 * (i + 1);
+            }
+          } else if (cid === 'fog') {
+            for (let i = 0; i < 4; i++) {
+              const d = core.getObjectByName(`dot_${i}`);
+              if (d) {
+                d.position.y = Math.sin(sec * 2.0 + i) * 0.04;
+              }
+            }
+          } else if (cid === 'rust') {
+            const sg = core.getObjectByName("smallGear");
+            if (sg) sg.rotation.z -= 0.03;
+          } else if (cid === 'avarice') {
+            const ir = core.getObjectByName("innerRing");
+            const or = core.getObjectByName("outerRing");
+            if (ir) ir.rotation.x += 0.03;
+            if (or) or.rotation.z += 0.015;
+          } else if (cid === 'eclipse') {
+            const c = core.getObjectByName("crescent");
+            if (c) c.rotation.z -= 0.025;
+          } else if (cid === 'curse') {
+            for (let i = 0; i < 3; i++) {
+              const s = core.getObjectByName(`spike_${i}`);
+              if (s) {
+                s.position.y = Math.sin(sec * 3.0 + i) * 0.01;
+              }
+            }
+          } else if (cid === 'choked') {
+            for (let i = 0; i < 2; i++) {
+              const c = core.getObjectByName(`cage_${i}`);
+              if (c) c.rotation.z += 0.01 * (i === 0 ? 1 : -1);
+            }
+          }
+        }
+      }
+    }
 
     // Active physics update tied to the requestAnimationFrame loop to ensure perfect sync
     if (this.engine.battleState && this.engine.battleState.phase === 'spinning') {
@@ -3359,12 +3695,19 @@ export class RenderManager {
           this.cameraTargetLookAt.set(0.8, 0.05, -0.75);
         }
       } else if (this.activeView === 5) { // Opponent Side (cinematic diagonal view of opponent and their board)
-        if (this.ui && this.ui.mobileModeActive) {
-          this.cameraTargetPos.set(-0.4, 1.95, 0.05); // Zoomed out
-          this.cameraTargetLookAt.set(0.0, 0.1, -1.95);
+        const animProgress = this.oppAnimType === 'card_play' ? Math.min(1.0, this.oppAnimTime / 3.5) : 0;
+        if (this.oppAnimType === 'card_play' && animProgress >= 0.2 && animProgress < 0.8) {
+          // Camera zoom/focus on the played card above the board!
+          this.cameraTargetPos.set(0.0, 0.85, -1.35); // Close zoom
+          this.cameraTargetLookAt.set(0.0, 0.35, -1.95); // Look straight at the card
         } else {
-          this.cameraTargetPos.set(-0.4, 1.75, -0.45);
-          this.cameraTargetLookAt.set(0.0, 0.1, -1.95);
+          if (this.ui && this.ui.mobileModeActive) {
+            this.cameraTargetPos.set(-0.4, 1.95, 0.05); // Zoomed out
+            this.cameraTargetLookAt.set(0.0, 0.1, -1.95);
+          } else {
+            this.cameraTargetPos.set(-0.4, 1.75, -0.45);
+            this.cameraTargetLookAt.set(0.0, 0.1, -1.95);
+          }
         }
       } else if (this.activeView === 7) { // Opponent Himself (direct face-to-face view of opponent mask and eyes)
         if (this.ui && this.ui.mobileModeActive) {
@@ -3509,17 +3852,18 @@ export class RenderManager {
       if (progress < 0.2) {
         // Lift up & rotate
         const t = progress / 0.2;
-        this.oppActionCardMesh.position.set(0, 0.1 + t * 0.4, -2.62 + t * 0.2);
-        this.oppActionCardMesh.rotation.set(-Math.PI / 2 + t * (Math.PI / 2 + 0.1), Math.PI - t * Math.PI, 0);
+        // Fly from deck/hand position (0, 0.1, -2.62) to above the board (0, 0.35, -1.95)
+        this.oppActionCardMesh.position.set(0, 0.1 + t * 0.25, -2.62 + t * 0.67);
+        this.oppActionCardMesh.rotation.set(-Math.PI / 2 + t * (Math.PI / 2 + 0.3), Math.PI - t * Math.PI, 0);
       } else if (progress < 0.8) {
-        // Hover
-        this.oppActionCardMesh.position.set(0, 0.5, -2.42);
-        this.oppActionCardMesh.rotation.set(0.1, 0, 0);
+        // Hover above the board (0, 0.35, -1.95)
+        this.oppActionCardMesh.position.set(0, 0.35, -1.95);
+        this.oppActionCardMesh.rotation.set(0.3, 0, 0); // Tilted towards the player camera
       } else {
-        // Sink/fade
+        // Sink/fade towards the board felt
         const t = (progress - 0.8) / 0.2;
-        this.oppActionCardMesh.position.set(0, 0.5 - t * 0.4, -2.42 - t * 0.2);
-        this.oppActionCardMesh.rotation.set(0.1 - t * (Math.PI / 2 + 0.1), t * Math.PI, 0);
+        this.oppActionCardMesh.position.set(0, 0.35 - t * 0.3, -1.95);
+        this.oppActionCardMesh.rotation.set(0.3 - t * (Math.PI / 2 + 0.3), 0, 0);
       }
 
       if (this.oppAnimChips.length > 0) {
@@ -3565,8 +3909,8 @@ export class RenderManager {
     let targetOffsetX = 0;
     let targetOffsetY = 0;
     if (this.activeView === 4 && this.isDraggingOverview && this.mouse.x !== -999) {
-      targetOffsetX = this.mouse.x * 0.70;
-      targetOffsetY = this.mouse.y * 0.45;
+      targetOffsetX = this.mouse.x * 1.5; // multiplier for a 180-degree sweep
+      targetOffsetY = this.mouse.y * 0.8; // multiplier for a 60-degree sweep
       this.overviewPanOffsetX += (targetOffsetX - this.overviewPanOffsetX) * 0.05;
       this.overviewPanOffsetY += (targetOffsetY - this.overviewPanOffsetY) * 0.05;
     } else {
@@ -3577,10 +3921,21 @@ export class RenderManager {
     const modifiedTargetPos = this.cameraTargetPos.clone();
     const modifiedTargetLookAt = this.cameraTargetLookAt.clone();
 
-    modifiedTargetPos.x += this.overviewPanOffsetX;
-    modifiedTargetPos.y += this.overviewPanOffsetY;
-    modifiedTargetLookAt.x += this.overviewPanOffsetX * 0.5;
-    modifiedTargetLookAt.y += -this.overviewPanOffsetY * 0.5;
+    if (this.activeView === 4) {
+      const yaw = (this.overviewPanOffsetX / 1.5) * (Math.PI / 2); // maps to -90 to +90 degrees
+      const pitch = -0.85 + (this.overviewPanOffsetY / 0.8) * (Math.PI / 6); // -0.85 rad default look down (mouse drag offset tilts relative to this)
+      
+      const dir = new THREE.Vector3(0, 0, -1);
+      dir.applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch);
+      dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), -yaw); // minus yaw so dragging right rotates look right
+      dir.multiplyScalar(2.0);
+      modifiedTargetLookAt.copy(modifiedTargetPos).add(dir);
+    } else {
+      modifiedTargetPos.x += this.overviewPanOffsetX;
+      modifiedTargetPos.y += this.overviewPanOffsetY;
+      modifiedTargetLookAt.x += this.overviewPanOffsetX * 0.5;
+      modifiedTargetLookAt.y += this.overviewPanOffsetY * 0.5;
+    }
 
     this.camera.position.lerp(modifiedTargetPos, 0.08);
     this.cameraCurrentLookAt.lerp(modifiedTargetLookAt, 0.08);
@@ -3631,36 +3986,50 @@ export class RenderManager {
 
     const chipGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.006, 8);
 
-    // 2. Create new chip meshes based on current bets
+    // 2. Create new chip meshes based on current bets, broken down by denomination color
     this.engine.battleState.bets.forEach(bet => {
       const pos = this.getBoardCellPosition(bet.type, bet.numberValue);
-      const stackHeight = Math.max(1, Math.min(8, Math.ceil(bet.amount / 2)));
       
-      let mat = this.chipMaterials.number;
-      if (bet.type === 'red') mat = this.chipMaterials.red;
-      else if (bet.type === 'black') mat = this.chipMaterials.black;
-      else if (bet.type === 'green') mat = this.chipMaterials.green;
-      else if (bet.type === 'odd') mat = this.chipMaterials.red;
-      else if (bet.type === 'even') mat = this.chipMaterials.blue;
-      else if (bet.type === 'gold') mat = this.chipMaterials.gold;
-      else if (bet.type === 'purple') mat = this.chipMaterials.purple;
-      else if (bet.type === 'cyan') mat = this.chipMaterials.cyan;
-      else if (bet.type === 'crimson') mat = this.chipMaterials.crimson;
+      // Breakdown bet.amount into denominations: 10, 5, 1
+      let amount = bet.amount;
+      const denoms: number[] = [];
+      while (amount >= 10) {
+        denoms.push(10);
+        amount -= 10;
+      }
+      while (amount >= 5) {
+        denoms.push(5);
+        amount -= 5;
+      }
+      while (amount >= 1) {
+        denoms.push(1);
+        amount -= 1;
+      }
 
-      for (let j = 0; j < stackHeight; j++) {
+      // Limit stack height to prevent excessive meshes (e.g. max 12)
+      const renderDenoms = denoms.slice(0, 12);
+
+      renderDenoms.forEach((denom, j) => {
+        let mat = this.chipMaterials.red; // 1s = red
+        if (denom === 5) mat = this.chipMaterials.green; // 5s = green
+        else if (denom === 10) mat = this.chipMaterials.number; // 10s = gold/yellow
+
         const chip = new THREE.Mesh(chipGeo, mat);
         chip.castShadow = true;
         chip.receiveShadow = true;
         chip.userData = { isPlacedChip: true, betType: bet.type, numberValue: bet.numberValue };
         
-        const rx = (Math.random() - 0.5) * 0.006;
-        const rz = (Math.random() - 0.5) * 0.006;
+        // Stable pseudorandom offset based on bet type, numberValue, and stack index
+        // This stops placed chips from shifting around when other bets change
+        const seedValue = (bet.type.charCodeAt(0) || 0) + (bet.numberValue || 0) + j;
+        const rx = (Math.sin(seedValue * 12.9898) * 43758.5453 % 1) * 0.006;
+        const rz = (Math.cos(seedValue * 78.233) * 43758.5453 % 1) * 0.006;
         
         chip.position.set(pos.x + rx, pos.y + j * 0.007 + 0.003, pos.z + rz);
         
         this.scene.add(chip);
         this.chipMeshes.push(chip);
-      }
+      });
     });
 
     // 3. Draw source stacks dynamically based on player's available turn balance
