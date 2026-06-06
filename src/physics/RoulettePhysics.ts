@@ -13,6 +13,30 @@ const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31];
 
 export function getSlotColor(num: number, wheel?: WheelConfig, boardMods?: BoardModifiers): SlotColor {
   if (boardMods) {
+    if (boardMods.convertAllToGold) return 'gold';
+    if (boardMods.convertAllToPurple) return 'purple';
+    if (boardMods.convertAllToCyan) return 'cyan';
+    if (boardMods.convertAllToCrimson) return 'crimson';
+
+    if (boardMods.convertNumbersToGold && boardMods.convertNumbersToGold.includes(num)) return 'gold';
+    if (boardMods.convertNumbersToPurple && boardMods.convertNumbersToPurple.includes(num)) return 'purple';
+    if (boardMods.convertNumbersToCyan && boardMods.convertNumbersToCyan.includes(num)) return 'cyan';
+    if (boardMods.convertNumbersToCrimson && boardMods.convertNumbersToCrimson.includes(num)) return 'crimson';
+    if (boardMods.convertNumbersToGreen && boardMods.convertNumbersToGreen.includes(num)) return 'green';
+
+    if (boardMods.convertAllToRed) {
+      const baseColor = getSlotColor(num, wheel, undefined);
+      if (baseColor === 'red' || baseColor === 'black') return 'red';
+    }
+    if (boardMods.convertAllToBlack) {
+      const baseColor = getSlotColor(num, wheel, undefined);
+      if (baseColor === 'red' || baseColor === 'black') return 'black';
+    }
+    if (boardMods.convertAllToGreen) {
+      const baseColor = getSlotColor(num, wheel, undefined);
+      if (baseColor === 'red' || baseColor === 'black') return 'green';
+    }
+
     if ((boardMods as any).zeroEclipseActive && num === 0) {
       return 'black';
     }
@@ -71,19 +95,19 @@ export function getEffectiveColor(color: SlotColor, num: number, greenNumbers: n
 }
 
 // Returns a description of the special effect for a slot color, or null if no effect
-export function getSlotEffect(color: SlotColor, playerHpPercent: number): { description: string; type: string } | null {
+export function getSlotEffect(color: SlotColor, isPlayerLosing: boolean): { description: string; type: string } | null {
   switch (color) {
     case 'gold':
-      return { description: 'GOLD — Healed 3 HP and gained 3x payout', type: 'gold_heal' };
+      return { description: 'GOLD — Transformed slots to Gold and gained +15 PTS!', type: 'gold_points' };
     case 'purple':
-      return { description: 'PURPLE CURSE — 2x damage to enemy, but costs 3 HP', type: 'purple_curse' };
+      return { description: 'PURPLE CURSE — Gained +20 PTS and stunned opponent!', type: 'purple_curse' };
     case 'cyan':
-      return { description: 'CYAN SHIELD — Gained 8 block and 2x payout', type: 'cyan_shield' };
+      return { description: 'CYAN ESSENCE — Gained +10 PTS, refilled chips, and drew 2 cards!', type: 'cyan_shield' };
     case 'crimson':
-      if (playerHpPercent < 0.5) {
-        return { description: 'CRIMSON BLOOD — HP below 50%! 5x payout!', type: 'crimson_active' };
+      if (isPlayerLosing) {
+        return { description: 'CRIMSON — Currently losing! 12x payout multiplier!', type: 'crimson_active' };
       } else {
-        return { description: 'CRIMSON — HP above 50%, only 1x payout', type: 'crimson_inactive' };
+        return { description: 'CRIMSON — Currently winning/tied. 6x payout multiplier', type: 'crimson_inactive' };
       }
     default:
       return null;
@@ -101,12 +125,27 @@ const DEFAULT_WHEEL: WheelConfig = {
   upgrades: []
 };
 
+export interface BallState {
+  id: number;
+  ballAngle: number;
+  ballOmega: number;
+  ballRadius: number;
+  ballHeight: number;
+  ballRadVel: number;
+  ballHeightVel: number;
+  isSettled: boolean;
+  settledSlotIndex: number;
+  phase: 'outer' | 'dropping' | 'bouncing' | 'settled';
+  shotgunTimer?: number;
+  splitCooldown?: number;
+}
+
 export class RoulettePhysics {
   // Wheel physics state
   wheelAngle = 0;
   wheelOmega = 0;
   
-  // Ball physics state
+  // Backwards compatibility single-ball fields
   ballAngle = 0;
   ballOmega = 0;
   ballRadius = 1.0;
@@ -114,11 +153,15 @@ export class RoulettePhysics {
   isSettled = false;
   settledSlotIndex = -1;
   
+  // Active balls array
+  balls: BallState[] = [];
+  nextBallId = 1;
+
   // Collision flags for audio triggering
   justHitPin = false;
   justHitDivider = false;
   
-  // Real-time velocity state
+  // Real-time velocity state (backwards compatibility)
   ballRadVel = 0;
   ballHeightVel = 0;
   
@@ -128,8 +171,7 @@ export class RoulettePhysics {
   readonly BALL_DECAY = 2.4; // Natural speed decay of the ball (increased from 0.85 to speed up settling)
   readonly WHEEL_DECAY = 0.45; // Natural speed decay of the wheel (increased from 0.15 to speed up settling)
 
-  // Current simulation phase
-  // 'outer' -> 'dropping' -> 'bouncing' -> 'settled'
+  // Current simulation phase (backwards compatibility)
   phase: 'outer' | 'dropping' | 'bouncing' | 'settled' = 'outer';
   
   // Modifiers cached for the current spin
@@ -183,6 +225,8 @@ export class RoulettePhysics {
     this.phase = 'outer';
     this.ballRadius = this.R_OUTER;
     this.ballHeight = 0.15;
+    this.balls = [];
+    this.nextBallId = 1;
     
     // Resolve initial seeds (using Math.random if undefined, but ensuring stable seeded generator)
     const wAngle = seedWheelAngle !== undefined ? seedWheelAngle : (Math.random() * Math.PI * 2);
@@ -204,9 +248,7 @@ export class RoulettePhysics {
     };
 
     this.wheelOmega = wSpeed * mods.spinSpeed;
-    this.ballOmega = bSpeed / Math.sqrt(mods.ballMass);
     this.wheelAngle = wAngle;
-    this.ballAngle = bAngle;
 
     // Handle Bias (cheating physics)
     this.biasTargetAngle = -1;
@@ -227,280 +269,398 @@ export class RoulettePhysics {
         this.biasTargetAngle = slotIdx * (Math.PI * 2 / this.slotCount);
       }
     }
+
+    // Spawn initial balls
+    const count = mods.multiballCount || 1;
+    const initialOmega = bSpeed / Math.sqrt(mods.ballMass);
+    for (let i = 0; i < count; i++) {
+      const offsetAngle = i * (Math.PI * 2 / count);
+      const angle = (bAngle + offsetAngle) % (Math.PI * 2);
+      this.balls.push({
+        id: this.nextBallId++,
+        ballAngle: angle,
+        ballOmega: initialOmega,
+        ballRadius: this.R_OUTER,
+        ballHeight: 0.15,
+        ballRadVel: 0,
+        ballHeightVel: 0,
+        isSettled: false,
+        settledSlotIndex: -1,
+        phase: 'outer',
+        shotgunTimer: mods.shotgunTime ? mods.shotgunTime : undefined
+      });
+    }
+
+    // Sync initial state to class fields
+    if (this.balls.length > 0) {
+      const first = this.balls[0];
+      this.ballAngle = first.ballAngle;
+      this.ballOmega = first.ballOmega;
+      this.ballRadius = first.ballRadius;
+      this.ballHeight = first.ballHeight;
+      this.ballRadVel = first.ballRadVel;
+      this.ballHeightVel = first.ballHeightVel;
+      this.isSettled = false;
+      this.settledSlotIndex = -1;
+      this.phase = first.phase;
+    }
   }
 
   update(dt: number) {
-    if (this.isSettled) {
-      // 1. Update wheel angle and slow down to a stop eventually
-      this.wheelAngle = (this.wheelAngle + this.wheelOmega * dt) % (Math.PI * 2);
-      this.wheelOmega = Math.max(0, this.wheelOmega - this.WHEEL_DECAY * this.mods.friction * dt);
-
-      // 2. Keep the ball locked in the settled slot relative to the wheel
-      const slotAngleWidth = (Math.PI * 2) / this.slotCount;
-      const targetAngleInWheel = this.settledSlotIndex * slotAngleWidth;
-      
-      this.ballAngle = (this.wheelAngle + targetAngleInWheel) % (Math.PI * 2);
-      if (this.ballAngle < 0) this.ballAngle += Math.PI * 2;
-      
-      this.ballRadius = this.R_INNER;
-      this.ballHeight = 0.02;
-      this.ballOmega = this.wheelOmega;
-      return;
-    }
-
     // 1. Update Wheel Angle & Friction
     this.wheelAngle = (this.wheelAngle + this.wheelOmega * dt) % (Math.PI * 2);
-    this.wheelOmega = Math.max(0.15, this.wheelOmega - this.WHEEL_DECAY * this.mods.friction * dt);
-
-    // 2. Apply forces to the ball depending on its radius
-    const frictionDecay = this.BALL_DECAY * this.mods.friction;
     
-    // Check if the ball is on the static outer rim versus the spinning inner wheel
-    if (this.ballRadius > 0.88) {
-      // Outer track: slides on static track (decelerates towards 0)
-      if (this.ballOmega > 0) {
-        this.ballOmega = Math.max(0, this.ballOmega - frictionDecay * dt);
-      } else {
-        this.ballOmega = Math.min(0, this.ballOmega + frictionDecay * dt);
-      }
+    const allSettled = this.balls.length > 0 && this.balls.every(b => b.isSettled);
+    if (allSettled) {
+      this.wheelOmega = Math.max(0, this.wheelOmega - this.WHEEL_DECAY * this.mods.friction * dt);
     } else {
-      // Inner wheel: dragged by the rotating wheel cone
-      const relOmega = this.ballOmega - this.wheelOmega;
-      const dragFactor = 1.8 * this.mods.friction;
-      this.ballOmega -= relOmega * dragFactor * dt;
+      this.wheelOmega = Math.max(0.15, this.wheelOmega - this.WHEEL_DECAY * this.mods.friction * dt);
     }
 
-    // Apply Tilt gravity force (if active)
-    if (this.mods.wheelTilt > 0) {
-      const bottomAngle = Math.PI * 0.5;
-      const angleDiff = bottomAngle - this.ballAngle;
-      const gravityForce = Math.sin(angleDiff) * this.mods.wheelTilt * 6.5;
-      this.ballOmega += gravityForce * dt;
-    }
+    this.justHitPin = false;
+    this.justHitDivider = false;
 
-    // 3. Radial physics: centrifugal force vs gravity slope pull
-    const centrifugalForce = (this.ballOmega * this.ballOmega) * this.ballRadius;
-    
-    // Sloped cone gravity pull (pulls inwards)
-    let inwardGravity = 9.0; // firm pull in slots to settle
-    if (this.ballRadius > 0.92) {
-      inwardGravity = 3.0; // stable outer rim orbit
-    } else if (this.ballRadius > 0.78) {
-      inwardGravity = 4.5; // gentle drop pull for long horizontal spiral
-    }
-    
-    // Lodestone magnetic bias (pulls towards the target zone when near the cone)
-    let magneticForce = 0;
-    if (this.mods.targetZoneBias > 0 && this.biasTargetAngle >= 0 && this.ballRadius < 0.9) {
-      let angleInWheel = (this.ballAngle - this.wheelAngle);
-      if (angleInWheel < 0) angleInWheel += Math.PI * 2;
-      angleInWheel = angleInWheel % (Math.PI * 2);
-      
-      let diff = this.biasTargetAngle - angleInWheel;
-      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-      
-      // Accelerate ball omega towards the target angle
-      this.ballOmega += Math.sin(diff) * this.mods.targetZoneBias * 25.0 * dt;
-      // Also pull the ball inwards faster to force it to settle in that zone
-      inwardGravity += this.mods.targetZoneBias * 8.0;
-    }
+    const startingLength = this.balls.length;
+    for (let idx = 0; idx < startingLength; idx++) {
+      const ball = this.balls[idx];
 
-    // Update radial velocity and position
-    this.ballRadVel += (centrifugalForce - inwardGravity) * dt;
-    // Limit radial velocity to avoid clipping
-    this.ballRadVel = Math.max(-4.0, Math.min(4.0, this.ballRadVel));
-    
-    this.ballRadius += this.ballRadVel * dt;
-
-    // Constrain radius between outer and inner track
-    if (this.ballRadius >= this.R_OUTER) {
-      this.ballRadius = this.R_OUTER;
-      this.ballRadVel = -Math.abs(this.ballRadVel) * 0.15; // low bounce off outer wall
-    } else if (this.ballRadius <= this.R_INNER) {
-      this.ballRadius = this.R_INNER;
-      this.ballRadVel = Math.abs(this.ballRadVel) * 0.25; // bounce outwards
-    }
-    
-    // 4. Vertical physics: gravity vs floor collisions
-    this.ballHeightVel -= 18.0 * dt;
-    this.ballHeight += this.ballHeightVel * dt;
-
-    // Calculate floor height at current radius
-    let targetFloorHeight = 0.02; // slot floor height
-    if (this.ballRadius > 0.88) {
-      targetFloorHeight = 0.15; // outer track height
-    } else if (this.ballRadius > this.R_INNER) {
-      // Cone slope interpolation
-      const t = (this.ballRadius - this.R_INNER) / (0.88 - this.R_INNER);
-      targetFloorHeight = 0.02 + 0.13 * t;
-    }
-
-    // Floor collision
-    if (this.ballHeight <= targetFloorHeight) {
-      this.ballHeight = targetFloorHeight;
-      const restitution = 0.35 / Math.sqrt(this.mods.ballMass);
-      this.ballHeightVel = -this.ballHeightVel * restitution;
-      
-      // Damp radial speed on floor impact
-      this.ballRadVel *= 0.7;
-    }
-
-    // 5. Update ball angle
-    const lastAngle = this.ballAngle;
-    this.ballAngle = (this.ballAngle + this.ballOmega * dt);
-    if (this.ballAngle < 0) this.ballAngle += Math.PI * 2;
-    this.ballAngle = this.ballAngle % (Math.PI * 2);
-
-    // Track outer rim rolling ticks
-    if (this.ballRadius > 0.88) {
-      const spacing = Math.PI / 8; // 16 ticks per revolution
-      const prevIdx = Math.floor(lastAngle / spacing);
-      const currIdx = Math.floor(this.ballAngle / spacing);
-      if (prevIdx !== currIdx) {
-        this.justHitDivider = true;
+      if (ball.isSettled) {
+        // Keep the ball locked in the settled slot relative to the wheel
+        const slotAngleWidth = (Math.PI * 2) / this.slotCount;
+        const targetAngleInWheel = ball.settledSlotIndex * slotAngleWidth;
+        
+        ball.ballAngle = (this.wheelAngle + targetAngleInWheel) % (Math.PI * 2);
+        if (ball.ballAngle < 0) ball.ballAngle += Math.PI * 2;
+        
+        ball.ballRadius = this.R_INNER;
+        ball.ballHeight = 0.02;
+        ball.ballOmega = this.wheelOmega;
+        continue;
       }
-    }
 
-    // 6. Collision with deflector pins (spaced at 45 degrees, R = 0.82)
-    if (this.ballRadius < 0.9 && this.ballRadius > 0.78) {
-      const pinCount = 8;
-      const spacing = (Math.PI * 2) / pinCount;
-      const R_PIN = 0.82;
-      const ballSize = 0.035;
-      const pinSize = 0.015;
-      const collisionDist = ballSize + pinSize;
+      // Update split cooldown
+      if (ball.splitCooldown !== undefined && ball.splitCooldown > 0) {
+        ball.splitCooldown -= dt;
+      }
 
-      for (let i = 0; i < pinCount; i++) {
-        const pinAngle = i * spacing;
-        const px = R_PIN * Math.cos(pinAngle);
-        const pz = R_PIN * Math.sin(pinAngle);
-        const bx = this.ballRadius * Math.cos(this.ballAngle);
-        const bz = this.ballRadius * Math.sin(this.ballAngle);
-        
-        const dx = bx - px;
-        const dz = bz - pz;
-        const dist = Math.sqrt(dx * dx + dz * dz);
-        
-        if (dist < collisionDist) {
-          // Bounce off pin!
-          this.justHitPin = true;
-          // Push ball outwards and change its angular velocity
-          const normalX = dx / dist;
-          const normalZ = dz / dist;
+      // Update shotgun timer
+      if (ball.shotgunTimer !== undefined) {
+        ball.shotgunTimer -= dt;
+        if (ball.shotgunTimer <= 0) {
+          ball.shotgunTimer = undefined;
           
-          // Re-calculate radius and angle from new position
-          const newBx = px + normalX * collisionDist * 1.05;
-          const newBz = pz + normalZ * collisionDist * 1.05;
-          
-          this.ballRadius = Math.sqrt(newBx * newBx + newBz * newBz);
-          this.ballAngle = Math.atan2(newBz, newBx);
-          if (this.ballAngle < 0) this.ballAngle += Math.PI * 2;
-
-          // Re-calculate velocities
-          const bounceEnergy = (Math.abs(this.ballOmega) * 0.35 + 0.5) / Math.sqrt(this.mods.ballMass);
-          this.ballRadVel = normalX * bounceEnergy * 1.2;
-          this.ballOmega = -this.ballOmega * 0.45 + (this.random() - 0.5) * this.mods.bounceRandomness * 18.0;
-          this.ballHeightVel = bounceEnergy * 0.8; // pop up!
-          
-          break;
+          // Spawn 4 extra scattered balls from current position
+          const numExtra = 4;
+          for (let j = 0; j < numExtra; j++) {
+            if (this.balls.length >= 8) break; // limit max balls to avoid crazy performance hit
+            const spreadAngle = (j - 1.5) * 0.15;
+            const extraAngle = (ball.ballAngle + spreadAngle) % (Math.PI * 2);
+            const extraOmega = ball.ballOmega * (0.8 + this.random() * 0.4);
+            const extraRadVel = ball.ballRadVel + (this.random() - 0.5) * 1.5;
+            const extraHeightVel = ball.ballHeightVel + this.random() * 2.0 + 1.0; // pop up!
+            
+            this.balls.push({
+              id: this.nextBallId++,
+              ballAngle: extraAngle,
+              ballOmega: extraOmega,
+              ballRadius: ball.ballRadius,
+              ballHeight: ball.ballHeight,
+              ballRadVel: extraRadVel,
+              ballHeightVel: extraHeightVel,
+              isSettled: false,
+              settledSlotIndex: -1,
+              phase: 'dropping'
+            });
+          }
         }
       }
-    }
 
-    // 7. Collision with slot dividers
-    const slotAngleWidth = (Math.PI * 2) / this.slotCount;
-    if (this.ballRadius < 0.78) {
-      let angleInWheel = (this.ballAngle - this.wheelAngle);
-      if (angleInWheel < 0) angleInWheel += Math.PI * 2;
-      angleInWheel = angleInWheel % (Math.PI * 2);
-
-      // Offset by half a slot width to align dividers to the visual boundaries (pegs)
-      const angleForWall = angleInWheel - slotAngleWidth * 0.5;
-      const localAngle = (angleForWall % slotAngleWidth + slotAngleWidth) % slotAngleWidth;
-      const wallThreshold = 0.04; // collision width in radians
-      
-      const isNearLeftWall = localAngle < wallThreshold;
-      const isNearRightWall = localAngle > slotAngleWidth - wallThreshold;
-
-      if ((isNearLeftWall || isNearRightWall) && (this.ballHeight - targetFloorHeight) < 0.025) {
-        // Hit divider wall!
-        this.justHitDivider = true;
-        const relOmega = this.ballOmega - this.wheelOmega;
-        const restitution = 0.4 / Math.sqrt(this.mods.ballMass);
-        
-        // Bounce angular speed
-        this.ballOmega = this.wheelOmega - relOmega * restitution + (this.random() - 0.5) * this.mods.bounceRandomness * 8.0;
-        
-        // Pop ball up and out
-        this.ballHeightVel = Math.max(0.1, Math.abs(relOmega) * 0.15);
-        this.ballRadVel = Math.max(0.1, Math.abs(relOmega) * 0.2);
-        
-        // Adjust angle slightly away from wall to prevent stuck triggers
-        if (isNearLeftWall) {
-          angleInWheel += wallThreshold * 1.05;
+      // 2. Apply forces depending on radius
+      const frictionDecay = this.BALL_DECAY * this.mods.friction;
+      if (ball.ballRadius > 0.88) {
+        // Outer track sliding
+        if (ball.ballOmega > 0) {
+          ball.ballOmega = Math.max(0, ball.ballOmega - frictionDecay * dt);
         } else {
-          angleInWheel -= wallThreshold * 1.05;
+          ball.ballOmega = Math.min(0, ball.ballOmega + frictionDecay * dt);
         }
-        this.ballAngle = (this.wheelAngle + angleInWheel) % (Math.PI * 2);
-        if (this.ballAngle < 0) this.ballAngle += Math.PI * 2;
+      } else {
+        // Inner wheel drag
+        const relOmega = ball.ballOmega - this.wheelOmega;
+        const dragFactor = 1.8 * this.mods.friction;
+        ball.ballOmega -= relOmega * dragFactor * dt;
+      }
+
+      // Wheel tilt gravity
+      if (this.mods.wheelTilt > 0) {
+        const bottomAngle = Math.PI * 0.5;
+        const angleDiff = bottomAngle - ball.ballAngle;
+        const gravityForce = Math.sin(angleDiff) * this.mods.wheelTilt * 6.5;
+        ball.ballOmega += gravityForce * dt;
+      }
+
+      // 3. Radial physics: centrifugal force vs gravity slope pull
+      const centrifugalForce = (ball.ballOmega * ball.ballOmega) * ball.ballRadius;
+      let inwardGravity = 9.0;
+      if (ball.ballRadius > 0.92) {
+        inwardGravity = 3.0;
+      } else if (ball.ballRadius > 0.78) {
+        inwardGravity = 4.5;
+      }
+      
+      // Magnetic bias
+      if (this.mods.targetZoneBias > 0 && this.biasTargetAngle >= 0 && ball.ballRadius < 0.9) {
+        let angleInWheel = (ball.ballAngle - this.wheelAngle);
+        if (angleInWheel < 0) angleInWheel += Math.PI * 2;
+        angleInWheel = angleInWheel % (Math.PI * 2);
+        
+        let diff = this.biasTargetAngle - angleInWheel;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        
+        ball.ballOmega += Math.sin(diff) * this.mods.targetZoneBias * 25.0 * dt;
+        inwardGravity += this.mods.targetZoneBias * 8.0;
+      }
+
+      ball.ballRadVel += (centrifugalForce - inwardGravity) * dt;
+      ball.ballRadVel = Math.max(-4.0, Math.min(4.0, ball.ballRadVel));
+      ball.ballRadius += ball.ballRadVel * dt;
+
+      if (ball.ballRadius >= this.R_OUTER) {
+        ball.ballRadius = this.R_OUTER;
+        ball.ballRadVel = -Math.abs(ball.ballRadVel) * 0.15;
+      } else if (ball.ballRadius <= this.R_INNER) {
+        ball.ballRadius = this.R_INNER;
+        ball.ballRadVel = Math.abs(ball.ballRadVel) * 0.25;
+      }
+      
+      // 4. Vertical physics
+      ball.ballHeightVel -= 18.0 * dt;
+      ball.ballHeight += ball.ballHeightVel * dt;
+
+      let targetFloorHeight = 0.02;
+      if (ball.ballRadius > 0.88) {
+        targetFloorHeight = 0.15;
+      } else if (ball.ballRadius > this.R_INNER) {
+        const t = (ball.ballRadius - this.R_INNER) / (0.88 - this.R_INNER);
+        targetFloorHeight = 0.02 + 0.13 * t;
+      }
+
+      if (ball.ballHeight <= targetFloorHeight) {
+        ball.ballHeight = targetFloorHeight;
+        const restitution = 0.35 / Math.sqrt(this.mods.ballMass);
+        ball.ballHeightVel = -ball.ballHeightVel * restitution;
+        ball.ballRadVel *= 0.7;
+      }
+
+      // 5. Angle update
+      const lastAngle = ball.ballAngle;
+      ball.ballAngle = (ball.ballAngle + ball.ballOmega * dt);
+      if (ball.ballAngle < 0) ball.ballAngle += Math.PI * 2;
+      ball.ballAngle = ball.ballAngle % (Math.PI * 2);
+
+      if (ball.ballRadius > 0.88) {
+        const spacing = Math.PI / 8;
+        const prevIdx = Math.floor(lastAngle / spacing);
+        const currIdx = Math.floor(ball.ballAngle / spacing);
+        if (prevIdx !== currIdx) {
+          this.justHitDivider = true;
+          ball.phase = 'outer';
+        }
+      }
+
+      // 6. Collision with deflector pins
+      const checkMaxRad = this.mods.splitPegActive ? 0.93 : 0.9;
+      const checkMinRad = this.mods.splitPegActive ? 0.75 : 0.78;
+      if (ball.ballRadius < checkMaxRad && ball.ballRadius > checkMinRad) {
+        const pinCount = 8;
+        const spacing = (Math.PI * 2) / pinCount;
+        const R_PIN = 0.82;
+        const ballSize = this.mods.splitPegActive ? 0.065 : 0.035;
+        const pinSize = this.mods.splitPegActive ? 0.025 : 0.015;
+        const collisionDist = ballSize + pinSize;
+
+        for (let i = 0; i < pinCount; i++) {
+          const pinAngle = i * spacing;
+          const px = R_PIN * Math.cos(pinAngle);
+          const pz = R_PIN * Math.sin(pinAngle);
+          const bx = ball.ballRadius * Math.cos(ball.ballAngle);
+          const bz = ball.ballRadius * Math.sin(ball.ballAngle);
+          
+          const dx = bx - px;
+          const dz = bz - pz;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          
+          if (dist < collisionDist) {
+            this.justHitPin = true;
+            ball.phase = 'dropping';
+            const normalX = dx / dist;
+            const normalZ = dz / dist;
+            
+            const newBx = px + normalX * collisionDist * 1.05;
+            const newBz = pz + normalZ * collisionDist * 1.05;
+            
+            ball.ballRadius = Math.sqrt(newBx * newBx + newBz * newBz);
+            ball.ballAngle = Math.atan2(newBz, newBx);
+            if (ball.ballAngle < 0) ball.ballAngle += Math.PI * 2;
+
+            const bounceEnergy = (Math.abs(ball.ballOmega) * 0.35 + 0.5) / Math.sqrt(this.mods.ballMass);
+            ball.ballRadVel = normalX * bounceEnergy * 1.2;
+            ball.ballOmega = -ball.ballOmega * 0.45 + (this.random() - 0.5) * this.mods.bounceRandomness * 18.0;
+            ball.ballHeightVel = bounceEnergy * 0.8;
+
+            // Split peg active
+            if (this.mods.splitPegActive && this.balls.length < 6 && (!ball.splitCooldown || ball.splitCooldown <= 0)) {
+              ball.splitCooldown = 0.3;
+              const cloneOmega = -ball.ballOmega;
+              const cloneRadVel = -ball.ballRadVel;
+              const cloneHeightVel = ball.ballHeightVel * 0.9;
+              const cloneAngle = (ball.ballAngle + 0.05) % (Math.PI * 2);
+              this.balls.push({
+                id: this.nextBallId++,
+                ballAngle: cloneAngle,
+                ballOmega: cloneOmega,
+                ballRadius: ball.ballRadius,
+                ballHeight: ball.ballHeight,
+                ballRadVel: cloneRadVel,
+                ballHeightVel: cloneHeightVel,
+                isSettled: false,
+                settledSlotIndex: -1,
+                phase: 'bouncing',
+                splitCooldown: 0.3
+              });
+            }
+            break;
+          }
+        }
+      }
+
+      // 7. Divider collisions
+      const slotAngleWidth = (Math.PI * 2) / this.slotCount;
+      if (ball.ballRadius < 0.78) {
+        let angleInWheel = (ball.ballAngle - this.wheelAngle);
+        if (angleInWheel < 0) angleInWheel += Math.PI * 2;
+        angleInWheel = angleInWheel % (Math.PI * 2);
+
+        const angleForWall = angleInWheel - slotAngleWidth * 0.5;
+        const localAngle = (angleForWall % slotAngleWidth + slotAngleWidth) % slotAngleWidth;
+        const wallThreshold = 0.04;
+        
+        const isNearLeftWall = localAngle < wallThreshold;
+        const isNearRightWall = localAngle > slotAngleWidth - wallThreshold;
+
+        if ((isNearLeftWall || isNearRightWall) && (ball.ballHeight - targetFloorHeight) < 0.025) {
+          this.justHitDivider = true;
+          ball.phase = 'bouncing';
+          const relOmega = ball.ballOmega - this.wheelOmega;
+          const restitution = 0.4 / Math.sqrt(this.mods.ballMass);
+          
+          ball.ballOmega = this.wheelOmega - relOmega * restitution + (this.random() - 0.5) * this.mods.bounceRandomness * 8.0;
+          ball.ballHeightVel = Math.max(0.1, Math.abs(relOmega) * 0.15);
+          ball.ballRadVel = Math.max(0.1, Math.abs(relOmega) * 0.2);
+          
+          if (isNearLeftWall) {
+            angleInWheel += wallThreshold * 1.05;
+          } else {
+            angleInWheel -= wallThreshold * 1.05;
+          }
+          ball.ballAngle = (this.wheelAngle + angleInWheel) % (Math.PI * 2);
+          if (ball.ballAngle < 0) ball.ballAngle += Math.PI * 2;
+
+          // Split peg active on divider collisions
+          if (this.mods.splitPegActive && this.balls.length < 6 && (!ball.splitCooldown || ball.splitCooldown <= 0)) {
+            ball.splitCooldown = 0.35;
+            const cloneOmega = -ball.ballOmega;
+            const cloneRadVel = -ball.ballRadVel;
+            const cloneHeightVel = ball.ballHeightVel * 0.9;
+            const cloneAngle = (ball.ballAngle + 0.05) % (Math.PI * 2);
+            this.balls.push({
+              id: this.nextBallId++,
+              ballAngle: cloneAngle,
+              ballOmega: cloneOmega,
+              ballRadius: ball.ballRadius,
+              ballHeight: ball.ballHeight,
+              ballRadVel: cloneRadVel,
+              ballHeightVel: cloneHeightVel,
+              isSettled: false,
+              settledSlotIndex: -1,
+              phase: 'bouncing',
+              splitCooldown: 0.35
+            });
+          }
+        }
+      }
+
+      // 8. Settle check
+      const relSpeed = Math.abs(ball.ballOmega - this.wheelOmega);
+      if (
+        ball.ballRadius <= this.R_INNER + 0.04 &&
+        ball.ballHeight <= 0.021 &&
+        relSpeed < 0.8 &&
+        Math.abs(ball.ballRadVel) < 0.15
+      ) {
+        let angleInWheel = (ball.ballAngle - this.wheelAngle);
+        if (angleInWheel < 0) angleInWheel += Math.PI * 2;
+        angleInWheel = angleInWheel % (Math.PI * 2);
+
+        const slotIdx = Math.floor((angleInWheel + slotAngleWidth * 0.5) / slotAngleWidth) % this.slotCount;
+        let finalSlotIdx = (slotIdx + this.slotCount) % this.slotCount;
+        
+        // Nudge cheat
+        if (this.mods.nudgeCheatActive && this.winningTargets.length > 0) {
+          const currentNum = this.wheelNumbers[finalSlotIdx];
+          if (!this.winningTargets.includes(currentNum)) {
+            const dist = (this.mods as any).nudgeDistance || 1;
+            let foundIdx = -1;
+            for (let d = 1; d <= dist; d++) {
+              const prevIdx = (finalSlotIdx - d + this.slotCount) % this.slotCount;
+              const prevNum = this.wheelNumbers[prevIdx];
+              if (this.winningTargets.includes(prevNum)) {
+                foundIdx = prevIdx;
+                break;
+              }
+              const nextIdx = (finalSlotIdx + d + this.slotCount) % this.slotCount;
+              const nextNum = this.wheelNumbers[nextIdx];
+              if (this.winningTargets.includes(nextNum)) {
+                foundIdx = nextIdx;
+                break;
+              }
+            }
+            if (foundIdx !== -1) {
+              finalSlotIdx = foundIdx;
+            }
+          }
+        }
+        
+        ball.settledSlotIndex = finalSlotIdx;
+        ball.isSettled = true;
+        ball.phase = 'settled';
       }
     }
 
-    // 8. Settle check
-    // If the ball is deep in the slots, has low relative speed, low radial velocity, and has landed on the floor
-    const relSpeed = Math.abs(this.ballOmega - this.wheelOmega);
-    if (
-      this.ballRadius <= this.R_INNER + 0.04 &&
-      this.ballHeight <= 0.021 &&
-      relSpeed < 0.8 &&
-      Math.abs(this.ballRadVel) < 0.15
-    ) {
-      // Find closest slot
-      let angleInWheel = (this.ballAngle - this.wheelAngle);
-      if (angleInWheel < 0) angleInWheel += Math.PI * 2;
-      angleInWheel = angleInWheel % (Math.PI * 2);
-
-      const slotIdx = Math.floor((angleInWheel + slotAngleWidth * 0.5) / slotAngleWidth) % this.slotCount;
-      this.settleInSlot(slotIdx);
+    // Sync fields back to first ball for backwards compatibility
+    if (this.balls.length > 0) {
+      const first = this.balls[0];
+      this.ballAngle = first.ballAngle;
+      this.ballOmega = first.ballOmega;
+      this.ballRadius = first.ballRadius;
+      this.ballHeight = first.ballHeight;
+      this.ballRadVel = first.ballRadVel;
+      this.ballHeightVel = first.ballHeightVel;
+      this.isSettled = this.balls.every(b => b.isSettled);
+      this.settledSlotIndex = first.settledSlotIndex;
+      this.phase = first.phase;
+    } else {
+      this.isSettled = true;
     }
-  }
-
-  private settleInSlot(slotIdx: number) {
-    let finalSlotIdx = (slotIdx + this.slotCount) % this.slotCount;
-    
-    // Apply nudge cheat if active
-    if (this.mods.nudgeCheatActive && this.winningTargets.length > 0) {
-      const currentNum = this.wheelNumbers[finalSlotIdx];
-      if (!this.winningTargets.includes(currentNum)) {
-        const dist = (this.mods as any).nudgeDistance || 1;
-        let foundIdx = -1;
-        for (let d = 1; d <= dist; d++) {
-          const prevIdx = (finalSlotIdx - d + this.slotCount) % this.slotCount;
-          const prevNum = this.wheelNumbers[prevIdx];
-          if (this.winningTargets.includes(prevNum)) {
-            foundIdx = prevIdx;
-            break;
-          }
-          const nextIdx = (finalSlotIdx + d + this.slotCount) % this.slotCount;
-          const nextNum = this.wheelNumbers[nextIdx];
-          if (this.winningTargets.includes(nextNum)) {
-            foundIdx = nextIdx;
-            break;
-          }
-        }
-        if (foundIdx !== -1) {
-          finalSlotIdx = foundIdx;
-        }
-      }
-    }
-    
-    this.settledSlotIndex = finalSlotIdx;
-    this.isSettled = true;
-    this.phase = 'settled';
   }
 
   getWinningNumber(): number {
-    if (!this.isSettled) return -1;
-    return this.wheelNumbers[this.settledSlotIndex];
+    if (!this.isSettled || this.balls.length === 0) return -1;
+    return this.wheelNumbers[this.balls[0].settledSlotIndex];
+  }
+
+  getWinningNumbers(): number[] {
+    if (!this.isSettled) return [];
+    return this.balls.map(b => this.wheelNumbers[b.settledSlotIndex]);
   }
 }

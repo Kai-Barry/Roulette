@@ -1809,6 +1809,30 @@ body.debug-ui-active .combat-right {
   transform: translateY(-6px) scale(1.02);
 }
 
+/* Paint Card Styles */
+.paint-card {
+  border-left: 4px solid #ff9100 !important;
+  border-color: rgba(255, 145, 0, 0.4) !important;
+  background: linear-gradient(135deg, rgba(35, 18, 5, 0.95) 0%, rgba(15, 8, 3, 0.95) 100%) !important;
+}
+
+.paint-card:hover {
+  box-shadow: 0 0 25px rgba(255, 145, 0, 0.6) !important;
+  border-color: #ff9100 !important;
+}
+
+/* Money Card Styles */
+.money-card {
+  border-left: 4px solid #00e676 !important;
+  border-color: rgba(0, 230, 118, 0.4) !important;
+  background: linear-gradient(135deg, rgba(5, 30, 15, 0.95) 0%, rgba(3, 15, 8, 0.95) 100%) !important;
+}
+
+.money-card:hover {
+  box-shadow: 0 0 25px rgba(0, 230, 118, 0.6) !important;
+  border-color: #00e676 !important;
+}
+
 .shop-card-meta {
   font-size: 9px;
   color: #888;
@@ -3287,6 +3311,98 @@ body.mobile-mode .forge-stats-panel {
 
 body.mobile-mode .forge-stats-multipliers {
   flex-wrap: wrap !important;
+}
+
+/* Mobile responsive shop and forge grid/items */
+.shop-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)) !important;
+  gap: 12px !important;
+  width: 100% !important;
+  max-width: 600px !important;
+  max-height: 42vh !important;
+  overflow-y: auto !important;
+  padding: 10px !important;
+  box-sizing: border-box !important;
+  margin: 10px auto !important;
+  pointer-events: auto !important;
+}
+
+.shop-card-item {
+  background: rgba(18, 11, 8, 0.95) !important;
+  border: 1px solid var(--color-border) !important;
+  padding: 12px !important;
+  border-radius: 4px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  text-align: center !important;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6) !important;
+  min-height: 140px !important;
+  transition: all 0.2s ease !important;
+}
+
+.shop-card-item .card-title {
+  font-family: var(--font-header) !important;
+  font-size: 1rem !important;
+  color: #fff !important;
+  margin-bottom: 6px !important;
+}
+
+.shop-card-item .card-desc {
+  font-family: var(--font-mono) !important;
+  font-size: 0.75rem !important;
+  color: #ccc !important;
+  margin-bottom: 12px !important;
+  flex-grow: 1 !important;
+}
+
+.shop-card-item .buy-btn, .shop-card-item .buy-upgrade-btn {
+  font-size: 0.85rem !important;
+  padding: 6px 10px !important;
+  width: 100% !important;
+}
+
+/* Event choices mobile lists */
+.event-choices-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  width: 90% !important;
+  max-width: 500px !important;
+  margin: 10px auto !important;
+  pointer-events: auto !important;
+}
+
+.event-choice-btn {
+  background: rgba(18, 11, 8, 0.9) !important;
+  border: 1.5px solid var(--color-gold) !important;
+  color: #fff !important;
+  padding: 10px 14px !important;
+  font-family: var(--font-header) !important;
+  font-size: 0.9rem !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.5) !important;
+}
+
+.event-choice-btn:hover, .event-choice-btn:active {
+  background: var(--color-gold) !important;
+  color: #000 !important;
+  box-shadow: 0 0 15px rgba(197, 159, 81, 0.6) !important;
+  transform: translateY(-2px) !important;
+}
+
+.choice-tag {
+  color: var(--color-gold) !important;
+  font-weight: bold !important;
+  margin-right: 6px !important;
+}
+
+.event-choice-btn:hover .choice-tag, .event-choice-btn:active .choice-tag {
+  color: #000 !important;
 }
 
 

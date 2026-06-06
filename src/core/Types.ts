@@ -4,7 +4,7 @@ export type SlotColor = 'red' | 'black' | 'green' | 'gold' | 'purple' | 'cyan' |
 export type BetColor = 'red' | 'black' | 'green' | 'gold' | 'purple' | 'cyan' | 'crimson';
 export type WheelRarity = 'common' | 'uncommon' | 'rare' | 'legendary';
 
-export type CardType = 'physics' | 'board' | 'payout' | 'utility';
+export type CardType = 'physics' | 'board' | 'payout' | 'utility' | 'chaos' | 'paint' | 'money';
 export type CardRarity = 'common' | 'uncommon' | 'rare' | 'legendary';
 
 export interface Card {
@@ -141,6 +141,8 @@ export interface RunState {
   forgeCards?: ForgeCard[];
   forgeRerollCount?: number;
   combatMode?: 'points' | 'damage';
+  colorLevels?: Record<SlotColor, number>;
+  colorUnlocks?: Record<string, boolean>;
 }
 
 export interface Bet {
@@ -193,6 +195,9 @@ export interface BattleState {
     ballSeedAngle?: number;
     spinSeedSpeed?: number;
     ballSeedSpeed?: number;
+    hand: Card[];
+    drawPile: Card[];
+    discardPile: Card[];
   } | null;
   lastSpinResult: {
     number: number;
@@ -204,6 +209,7 @@ export interface BattleState {
     cardsActive?: Card[];
     slotEffect?: string; // description of special color effect that triggered
     enemyWon?: boolean;
+    allOutcomes?: { number: number; color: SlotColor }[];
   } | null;
   physicsModifiers: PhysicsModifiers;
   boardModifiers: BoardModifiers;
@@ -224,6 +230,9 @@ export interface PhysicsModifiers {
   biasRedOnly?: boolean;
   biasBlackOnly?: boolean;
   nudgeDistance?: number;   // Max slots to nudge
+  multiballCount?: number;
+  splitPegActive?: boolean;
+  shotgunTime?: number;
 }
 
 export interface BoardModifiers {
@@ -263,4 +272,17 @@ export interface BoardModifiers {
   enemyStunTurns?: number;
   tempDurations?: Record<string, number>;
   bloodSpillSlots?: number[];
+  convertAllToRed?: boolean;
+  convertAllToBlack?: boolean;
+  convertAllToGreen?: boolean;
+  convertNumbersToGreen?: number[];
+  convertNumbersToGold?: number[];
+  convertNumbersToPurple?: number[];
+  convertNumbersToCyan?: number[];
+  convertNumbersToCrimson?: number[];
+  convertAllToGold?: boolean;
+  convertAllToPurple?: boolean;
+  convertAllToCyan?: boolean;
+  convertAllToCrimson?: boolean;
+  capitalVentureCount?: number;
 }

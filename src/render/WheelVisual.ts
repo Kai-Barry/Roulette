@@ -13,6 +13,9 @@ export class WheelVisual {
   trailGroup!: THREE.Group;
   ballLight!: THREE.PointLight;
   isEnemyWheel: boolean = false;
+  sharedTrailGeo?: THREE.SphereGeometry;
+  
+  extraBallMeshes = new Map<number, THREE.Mesh>();
   
   // Cache variables for ball speed check
   lastBallX?: number;
@@ -24,18 +27,36 @@ export class WheelVisual {
     this.buildWheel(isEnemy, config);
   }
 
+  clearExtraBalls() {
+    for (const mesh of this.extraBallMeshes.values()) {
+      this.group.remove(mesh);
+      mesh.geometry.dispose();
+      if (Array.isArray(mesh.material)) {
+        mesh.material.forEach(m => m.dispose());
+      } else {
+        mesh.material.dispose();
+      }
+    }
+    this.extraBallMeshes.clear();
+  }
+
   rebuildWheel(isEnemy: boolean, config: WheelConfig, predictionSector: number[] = [], boardMods?: BoardModifiers) {
+    this.clearExtraBalls();
     this.isEnemyWheel = isEnemy;
     // Dispose previous geometries and materials to avoid memory leaks
     this.group.traverse((child) => {
       if (child instanceof THREE.Mesh) {
-        if (child.geometry) child.geometry.dispose();
+        if (child.geometry && child.geometry !== this.sharedTrailGeo) child.geometry.dispose();
         if (child.material) {
           const mats = Array.isArray(child.material) ? child.material : [child.material];
           mats.forEach(m => m.dispose());
         }
       }
     });
+    if (this.sharedTrailGeo) {
+      this.sharedTrailGeo.dispose();
+      this.sharedTrailGeo = undefined;
+    }
 
     while (this.group.children.length > 0) {
       this.group.remove(this.group.children[0]);
@@ -339,34 +360,12 @@ export class WheelVisual {
     isSettled: boolean,
     settledSlotIndex: number,
     config: WheelConfig,
-    mods?: PhysicsModifiers
+    mods?: PhysicsModifiers,
+    activeBalls?: any[]
   ) {
     // Update wheel rotating parts
     this.wheelCone.rotation.y = -wheelAngle; // match physical spin direction
 
-    // Update ball coordinates in world space (wheel base)
-    this.ballMesh.position.x = Math.cos(ballAngle) * ballRadius;
-    this.ballMesh.position.z = Math.sin(ballAngle) * ballRadius;
-    
-    // Calculate physical floor height at current radius to determine bounce height
-    let physFloorHeight = 0.02;
-    if (ballRadius > 0.88) {
-      physFloorHeight = 0.15;
-    } else if (ballRadius > 0.65) {
-      const tPhys = (ballRadius - 0.65) / (0.88 - 0.65);
-      physFloorHeight = 0.02 + 0.13 * tPhys;
-    }
-    const bounceHeight = Math.max(0, ballHeight - physFloorHeight);
-
-    // Map physical floor height to visual floor height dynamically
-    // at R_INNER (0.65), visual floor is 0.026 + 0.035 (ringMesh + ball radius) = 0.061
-    // at R_OUTER (1.0), visual floor is 0.10 (rim center)
-    const tVis = (ballRadius - 0.65) / (1.0 - 0.65);
-    const visualFloorHeight = 0.061 + (0.10 - 0.061) * Math.max(0, Math.min(1, tVis));
-
-    this.ballMesh.position.y = visualFloorHeight + bounceHeight;
-
-    // --- Dynamic Ball Glow & Custom Material Coloring based on active Physics Card ---
     let lightColor = 0xffffff;
     let lightIntensity = 0.0;
     let ballColor = this.isEnemyWheel ? 0xffaaaa : 0xeeeeee;
@@ -374,46 +373,39 @@ export class WheelVisual {
 
     if (mods) {
       if (mods.targetZoneBias > 0) {
-        // Lodestone active: magnetic cyan-blue pulse
         lightColor = 0x00d2ff;
         lightIntensity = 3.5;
         ballColor = 0x80e8ff;
         ballEmissive = 0x0055ff;
       } else if (mods.nudgeCheatActive) {
-        // Glitch cheat: bright magenta glow
         lightColor = 0xff00ff;
         lightIntensity = 3.5;
         ballColor = 0xff80ff;
         ballEmissive = 0xaa00aa;
       } else if (mods.friction !== 1.0) {
         if (mods.friction < 1.0) {
-          // Low friction: freezing teal/light-blue
           lightColor = 0x80deea;
           lightIntensity = 3.0;
           ballColor = 0xe0f7fa;
           ballEmissive = 0x006064;
         } else {
-          // High friction: hot orange-red spark glow
           lightColor = 0xff3d00;
           lightIntensity = 3.0;
           ballColor = 0xff9e80;
           ballEmissive = 0xb71c1c;
         }
       } else if (mods.wheelTilt > 0) {
-        // Tilted gravity: deep purple gravity distortion glow
         lightColor = 0xb388ff;
         lightIntensity = 3.0;
         ballColor = 0xd1c4e9;
         ballEmissive = 0x512da8;
       } else if (mods.ballMass !== 1.0) {
         if (mods.ballMass > 1.0) {
-          // Heavy ball: radioactive green
           lightColor = 0x00e676;
           lightIntensity = 3.0;
           ballColor = 0xb9f6ca;
           ballEmissive = 0x00c853;
         } else {
-          // Light ball: yellow/white electric glow
           lightColor = 0xffeb3b;
           lightIntensity = 3.0;
           ballColor = 0xfff9c4;
@@ -422,34 +414,158 @@ export class WheelVisual {
       }
     }
 
-    if (this.ballLight) {
-      this.ballLight.color.setHex(lightColor);
-      this.ballLight.intensity = lightIntensity;
-    }
-    if (this.ballMesh && this.ballMesh.material) {
-      const mat = this.ballMesh.material as THREE.MeshStandardMaterial;
-      mat.color.setHex(ballColor);
-      mat.emissive.setHex(ballEmissive);
-    }
+    if (activeBalls && activeBalls.length > 0) {
+      // Hide default ball and light
+      this.ballMesh.visible = false;
+      if (this.ballLight) this.ballLight.intensity = 0;
 
-    // --- Spawn Trail Particles if special physics card active ---
-    const activeModsExist = mods && (mods.targetZoneBias > 0 || mods.nudgeCheatActive || mods.friction !== 1.0 || mods.wheelTilt > 0 || mods.ballMass !== 1.0);
-    const speed = Math.abs(this.ballMesh.position.x - (this.lastBallX || 0)) + Math.abs(this.ballMesh.position.z - (this.lastBallZ || 0));
-    this.lastBallX = this.ballMesh.position.x;
-    this.lastBallZ = this.ballMesh.position.z;
+      // Sync extra ball meshes
+      const activeIds = new Set(activeBalls.map(b => b.id));
+      const toDelete: number[] = [];
+      for (const id of this.extraBallMeshes.keys()) {
+        if (!activeIds.has(id)) {
+          toDelete.push(id);
+        }
+      }
+      for (const id of toDelete) {
+        const mesh = this.extraBallMeshes.get(id);
+        if (mesh) {
+          this.group.remove(mesh);
+          mesh.geometry.dispose();
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach(m => m.dispose());
+          } else {
+            mesh.material.dispose();
+          }
+          this.extraBallMeshes.delete(id);
+        }
+      }
 
-    if (activeModsExist && speed > 0.005 && Math.random() < 0.85 && this.trailGroup) {
-      const trailGeo = new THREE.SphereGeometry(0.018, 4, 4);
-      const trailMat = new THREE.MeshBasicMaterial({
-        color: lightColor,
-        transparent: true,
-        opacity: 0.8,
-        fog: false
-      });
-      const p = new THREE.Mesh(trailGeo, trailMat);
-      p.position.copy(this.ballMesh.position);
-      p.userData = { age: 0, maxAge: 12 };
-      this.trailGroup.add(p);
+      for (const ball of activeBalls) {
+        let mesh = this.extraBallMeshes.get(ball.id);
+        if (!mesh) {
+          const ballGeo = new THREE.SphereGeometry(0.035, 8, 8);
+          const ballMat = new THREE.MeshStandardMaterial({
+            color: this.isEnemyWheel ? 0xffaaaa : 0xeeeeee,
+            roughness: 0.15,
+            metalness: 0.9,
+            emissive: this.isEnemyWheel ? 0x990000 : 0x333333
+          });
+          mesh = new THREE.Mesh(ballGeo, ballMat);
+          mesh.castShadow = true;
+
+          const pointLight = new THREE.PointLight(0xffffff, 0.0, 1.2);
+          mesh.add(pointLight);
+
+          this.group.add(mesh);
+          this.extraBallMeshes.set(ball.id, mesh);
+        }
+
+        mesh.visible = true;
+
+        mesh.position.x = Math.cos(ball.ballAngle) * ball.ballRadius;
+        mesh.position.z = Math.sin(ball.ballAngle) * ball.ballRadius;
+
+        let physFloorHeight = 0.02;
+        if (ball.ballRadius > 0.88) {
+          physFloorHeight = 0.15;
+        } else if (ball.ballRadius > 0.65) {
+          const tPhys = (ball.ballRadius - 0.65) / (0.88 - 0.65);
+          physFloorHeight = 0.02 + 0.13 * tPhys;
+        }
+        const bounceHeight = Math.max(0, ball.ballHeight - physFloorHeight);
+
+        const tVis = (ball.ballRadius - 0.65) / (1.0 - 0.65);
+        const visualFloorHeight = 0.061 + (0.10 - 0.061) * Math.max(0, Math.min(1, tVis));
+        mesh.position.y = visualFloorHeight + bounceHeight;
+
+        // Set materials
+        const ballLight = mesh.children[0] as THREE.PointLight;
+        if (ballLight) {
+          ballLight.color.setHex(lightColor);
+          ballLight.intensity = lightIntensity;
+        }
+        if (mesh.material) {
+          const mat = mesh.material as THREE.MeshStandardMaterial;
+          mat.color.setHex(ballColor);
+          mat.emissive.setHex(ballEmissive);
+        }
+
+        // Trails
+        const activeModsExist = mods && (mods.targetZoneBias > 0 || mods.nudgeCheatActive || mods.friction !== 1.0 || mods.wheelTilt > 0 || mods.ballMass !== 1.0);
+        const trailSpawnChance = activeBalls.length > 1 ? 0.25 : 0.85;
+        if (activeModsExist && Math.random() < trailSpawnChance && this.trailGroup) {
+          if (!this.sharedTrailGeo) {
+            this.sharedTrailGeo = new THREE.SphereGeometry(0.018, 4, 4);
+          }
+          const trailMat = new THREE.MeshBasicMaterial({
+            color: lightColor,
+            transparent: true,
+            opacity: 0.8,
+            fog: false
+          });
+          const p = new THREE.Mesh(this.sharedTrailGeo, trailMat);
+          p.position.copy(mesh.position);
+          p.userData = { age: 0, maxAge: 12 };
+          this.trailGroup.add(p);
+        }
+      }
+    } else {
+      // Clear extra balls and show default ball
+      this.clearExtraBalls();
+      this.ballMesh.visible = true;
+
+      // Update ball coordinates in world space (wheel base)
+      this.ballMesh.position.x = Math.cos(ballAngle) * ballRadius;
+      this.ballMesh.position.z = Math.sin(ballAngle) * ballRadius;
+      
+      // Calculate physical floor height at current radius to determine bounce height
+      let physFloorHeight = 0.02;
+      if (ballRadius > 0.88) {
+        physFloorHeight = 0.15;
+      } else if (ballRadius > 0.65) {
+        const tPhys = (ballRadius - 0.65) / (0.88 - 0.65);
+        physFloorHeight = 0.02 + 0.13 * tPhys;
+      }
+      const bounceHeight = Math.max(0, ballHeight - physFloorHeight);
+
+      // Map physical floor height to visual floor height dynamically
+      const tVis = (ballRadius - 0.65) / (1.0 - 0.65);
+      const visualFloorHeight = 0.061 + (0.10 - 0.061) * Math.max(0, Math.min(1, tVis));
+
+      this.ballMesh.position.y = visualFloorHeight + bounceHeight;
+
+      if (this.ballLight) {
+        this.ballLight.color.setHex(lightColor);
+        this.ballLight.intensity = lightIntensity;
+      }
+      if (this.ballMesh && this.ballMesh.material) {
+        const mat = this.ballMesh.material as THREE.MeshStandardMaterial;
+        mat.color.setHex(ballColor);
+        mat.emissive.setHex(ballEmissive);
+      }
+
+      // --- Spawn Trail Particles if special physics card active ---
+      const activeModsExist = mods && (mods.targetZoneBias > 0 || mods.nudgeCheatActive || mods.friction !== 1.0 || mods.wheelTilt > 0 || mods.ballMass !== 1.0);
+      const speed = Math.abs(this.ballMesh.position.x - (this.lastBallX || 0)) + Math.abs(this.ballMesh.position.z - (this.lastBallZ || 0));
+      this.lastBallX = this.ballMesh.position.x;
+      this.lastBallZ = this.ballMesh.position.z;
+
+      if (activeModsExist && speed > 0.005 && Math.random() < 0.85 && this.trailGroup) {
+        if (!this.sharedTrailGeo) {
+          this.sharedTrailGeo = new THREE.SphereGeometry(0.018, 4, 4);
+        }
+        const trailMat = new THREE.MeshBasicMaterial({
+          color: lightColor,
+          transparent: true,
+          opacity: 0.8,
+          fog: false
+        });
+        const p = new THREE.Mesh(this.sharedTrailGeo, trailMat);
+        p.position.copy(this.ballMesh.position);
+        p.userData = { age: 0, maxAge: 12 };
+        this.trailGroup.add(p);
+      }
     }
 
     // Update trail particles life cycles
@@ -466,7 +582,9 @@ export class WheelVisual {
         
         if (p.userData.age >= p.userData.maxAge) {
           this.trailGroup.remove(p);
-          p.geometry.dispose();
+          if (p.geometry !== this.sharedTrailGeo) {
+            p.geometry.dispose();
+          }
           mat.dispose();
         }
       }
@@ -516,6 +634,7 @@ export class CardVisual {
   texture: THREE.CanvasTexture;
   card: Card;
   isPointsMode: boolean;
+  lastTurnsLeft?: number;
   
   constructor(card: Card, isPointsMode: boolean = false) {
     this.card = card;
@@ -606,7 +725,10 @@ export class CardVisual {
     } else {
       ctx.strokeStyle = card.type === 'physics' ? '#64b5f6' : 
                         card.type === 'board' ? '#81c784' : 
-                        card.type === 'payout' ? '#e57373' : '#ffd54f';
+                        card.type === 'payout' ? '#e57373' :
+                        card.type === 'chaos' ? '#e040fb' : 
+                        card.type === 'paint' ? '#ff9100' : 
+                        card.type === 'money' ? '#00e676' : '#ffd54f';
     }
     ctx.lineWidth = 12 * scale;
     ctx.strokeRect(6 * scale, 6 * scale, canvas.width - 12 * scale, canvas.height - 12 * scale);
@@ -653,6 +775,16 @@ export class CardVisual {
       ctx.beginPath();
       ctx.arc(128 * scale, 165 * scale, 30 * scale, 0, Math.PI * 2);
       ctx.stroke();
+    } else if (card.type === 'chaos') {
+      ctx.beginPath();
+      ctx.arc(128 * scale, 165 * scale, 30 * scale, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(128 * scale, 165 * scale, 18 * scale, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(128 * scale, 165 * scale, 8 * scale, 0, Math.PI * 2);
+      ctx.stroke();
     } else if (card.type === 'board') {
       ctx.fillRect(100 * scale, 135 * scale, 56 * scale, 56 * scale);
     } else if (card.type === 'payout') {
@@ -660,6 +792,20 @@ export class CardVisual {
       ctx.fillStyle = card.rarity === 'legendary' ? '#ff5722' :
                       card.rarity === 'rare' ? '#ffd700' : '#e57373';
       ctx.fillText('x2.5', 90 * scale, 175 * scale);
+    } else if (card.type === 'paint') {
+      ctx.beginPath();
+      ctx.arc(128 * scale, 170 * scale, 20 * scale, 0, Math.PI);
+      ctx.lineTo(128 * scale, 130 * scale);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else if (card.type === 'money') {
+      ctx.font = `bold ${48 * scale}px "Courier Prime", Courier, monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('$', 128 * scale, 165 * scale);
+      ctx.strokeText('$', 128 * scale, 165 * scale);
+      ctx.textAlign = 'left';
     } else {
       ctx.fillRect(108 * scale, 145 * scale, 40 * scale, 40 * scale);
     }
@@ -750,6 +896,8 @@ export class CardVisual {
   }
 
   updatePersistentState(turnsLeft?: number) {
+    if (this.lastTurnsLeft === turnsLeft) return;
+    this.lastTurnsLeft = turnsLeft;
     this.drawCardFace(turnsLeft);
     this.texture.needsUpdate = true;
   }

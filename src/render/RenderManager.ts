@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GameEngine } from '../core/GameEngine';
 import { WheelVisual, CardVisual, EnemyVisual, ForgeCardVisual, ShopItemVisual, EventChoiceVisual } from './WheelVisual';
 import { PS1Shader } from './PS1Shader';
-import { Card, WheelConfig, BoardUpgrade, BoardModifiers, Curse } from '../core/Types';
+import { Card, WheelConfig, BoardUpgrade, BoardModifiers, Curse, SlotColor } from '../core/Types';
 import { getSlotColor } from '../physics/RoulettePhysics';
 import { SoundManager } from '../ui/SoundManager';
 import { BOARD_UPGRADES } from '../core/WheelUpgrades';
@@ -30,6 +30,11 @@ export class RenderManager {
   tableMesh!: THREE.Mesh;
   playerFeltMesh!: THREE.Mesh;
   enemyFeltMesh!: THREE.Mesh;
+  bookMesh?: THREE.Group;
+  bookTexture?: THREE.CanvasTexture;
+  bookCanvas?: HTMLCanvasElement;
+  lastBookStateKey = '';
+  isBookZoomed = false;
   private lastPlayerWheelId: string | null = null;
   private lastBoardHash = '';
   handGroup!: THREE.Group;
@@ -302,8 +307,15 @@ export class RenderManager {
     if (!battle) return;
     
     const isEnemyOwner = battle.activeWheelOwner === 'enemy';
+    const cleanMods: BoardModifiers = {
+      extraGreenSlots: 0,
+      convertNumbersToRed: [],
+      convertNumbersToBlack: [],
+      payoutMultipliers: { red: 2, black: 2, green: 14, number: 36, odd: 2, even: 2 }
+    };
+
     this.wheelVis.rebuildWheel(false, battle.playerWheel, isEnemyOwner ? [] : (battle.predictionSector || []), battle.boardModifiers);
-    this.enemyWheelVis.rebuildWheel(true, battle.enemyWheel, isEnemyOwner ? (battle.predictionSector || []) : [], battle.boardModifiers);
+    this.enemyWheelVis.rebuildWheel(true, battle.enemyWheel, isEnemyOwner ? (battle.predictionSector || []) : [], cleanMods);
     this.enemyVis.rebuildEnemy(battle.enemy.spriteName);
     
     // Also reset active states
@@ -327,7 +339,7 @@ export class RenderManager {
       oldMat.dispose();
       
       this.enemyFeltMesh.material = new THREE.MeshBasicMaterial({
-        map: this.createFeltTexture(true, battle.boardModifiers),
+        map: this.createFeltTexture(true, cleanMods),
         fog: false
       });
     }
@@ -621,6 +633,8 @@ export class RenderManager {
     this.labelsMesh.rotation.x = -Math.PI / 2;
     this.labelsMesh.position.set(0.53, 0.006, 0.90);
     this.scene.add(this.labelsMesh);
+
+    this.initBook();
 
     // 2e. Opponent Hand Facedown Cards & messy static chips
     const oppCardGeo = new THREE.BoxGeometry(0.22, 0.31, 0.006);
@@ -1249,12 +1263,33 @@ export class RenderManager {
       });
     } else {
       const playerWheel = this.engine.runState.playerWheel;
+      const state = this.engine.runState;
       Object.keys(BOARD_UPGRADES).forEach(key => {
         const upgrade = BOARD_UPGRADES[key];
-        const isOwned = playerWheel.upgrades.includes(key);
+        let isOwned = playerWheel.upgrades.includes(key);
+        let cost = upgrade.cost;
+        let name = upgrade.name;
+        let desc = upgrade.description;
+
+        if (key.startsWith('level_')) {
+          const color = key.replace('level_', '') as SlotColor;
+          const currentLevel = state.colorLevels?.[color] || 1;
+          cost = 15 + (currentLevel - 1) * 5;
+          if (currentLevel >= 10) {
+            isOwned = true;
+          }
+          name = `${name} (Lvl ${currentLevel})`;
+          desc = `${desc} Currently: Lvl ${currentLevel}.`;
+        }
+
         currentOffers.push({
           type: 'upgrade',
-          data: upgrade,
+          data: {
+            ...upgrade,
+            name,
+            cost,
+            description: desc
+          },
           id: key,
           purchased: isOwned
         });
@@ -1331,7 +1366,7 @@ export class RenderManager {
 
   public syncEventChoices() {
     const choices = [
-      { id: '1', title: 'Inject Syringe', cost: 'Lose 8 Blood', desc: 'Gain 25 Essence chips.' },
+      { id: '1', title: 'Inject Syringe', cost: 'Lose 8 HP', desc: 'Gain 25 Essence chips.' },
       { id: '2', title: 'Accept Magnet', cost: 'Acquire Lodestone', desc: 'Add Lodestone Magnet card to your deck.' },
       { id: '3', title: 'Decline & Pass', cost: 'Decline Offer', desc: 'Push past them. Gain nothing, lose nothing.' }
     ];
@@ -2226,8 +2261,24 @@ export class RenderManager {
       startX = e.clientX;
       startY = e.clientY;
 
+      const coords = getMouseCoords(e);
+      this.mouse.copy(coords);
+      this.raycaster.setFromCamera(this.mouse, this.camera);
+
+      // Check book click first to allow toggling it at any time!
+      if (this.bookMesh && this.bookMesh.visible) {
+        const intersects = this.raycaster.intersectObjects(this.bookMesh.children);
+        if (intersects.length > 0) {
+          this.isBookZoomed = !this.isBookZoomed;
+          if (this.sound) this.sound.playCardSwoosh();
+          return;
+        }
+      }
+
       if (this.activeView === 4) {
-        this.isDraggingOverview = true;
+        if (this.ui && !this.ui.mobileModeActive) {
+          this.isDraggingOverview = true;
+        }
         return;
       }
 
@@ -2244,11 +2295,6 @@ export class RenderManager {
       if (!isForge && !isShop && !isEvent && (!this.engine.battleState || this.engine.battleState.phase !== 'betting')) {
         return; // Lock all inputs!
       }
-
-      const coords = getMouseCoords(e);
-      this.mouse.copy(coords);
-
-      this.raycaster.setFromCamera(this.mouse, this.camera);
       
       if (isForge) {
         const meshes = this.forgeCardsVisuals.map(cv => cv.mesh);
@@ -2480,15 +2526,7 @@ export class RenderManager {
       this.isDraggingBoard = false;
       this.isDraggingOverview = false;
 
-      if (this.activeView === 4) {
-        return;
-      }
-
       const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
-      const state = this.engine.runState;
-      const isForge = state.gameState === 'FORGE';
-      const isShop = state.gameState === 'SHOP';
-      const isEvent = state.gameState === 'EVENT';
 
       if (this.ui && this.ui.mobileModeActive && this.engine.battleState && dist > 40) {
         // Swipe gesture detected
@@ -2510,6 +2548,15 @@ export class RenderManager {
         pressedPlacedChip = null;
         return;
       }
+
+      if (this.activeView === 4) {
+        return;
+      }
+
+      const state = this.engine.runState;
+      const isForge = state.gameState === 'FORGE';
+      const isShop = state.gameState === 'SHOP';
+      const isEvent = state.gameState === 'EVENT';
 
       if (isForge) {
         if (pressedCardId && dist <= 5) {
@@ -2913,6 +2960,7 @@ export class RenderManager {
       if (cardToPlay.type === 'payout') sym = '💸';
       else if (cardToPlay.type === 'physics') sym = '🌀';
       else if (cardToPlay.type === 'board') sym = '📊';
+      else if (cardToPlay.type === 'chaos') sym = '💥';
       ctx.fillText(sym, 128 * scale, 150 * scale);
     } else {
       ctx.fillText('👁', 128 * scale, 150 * scale);
@@ -3528,8 +3576,10 @@ export class RenderManager {
     const enemyWheelConfig = battle ? battle.enemyWheel : this.engine.runState.playerWheel;
     const playerPhysics = this.engine.playerPhysics;
     const enemyPhysics = this.engine.enemyPhysics;
-    const playerMods = battle ? battle.physicsModifiers : undefined;
-    const enemyMods = battle ? battle.physicsModifiers : undefined;
+    
+    const activeOwner = battle ? battle.activeWheelOwner : 'player';
+    const playerMods = (battle && activeOwner === 'player') ? battle.physicsModifiers : undefined;
+    const enemyMods = (battle && activeOwner === 'enemy') ? battle.physicsModifiers : undefined;
 
     this.wheelVis.update(
       playerPhysics.wheelAngle,
@@ -3539,7 +3589,8 @@ export class RenderManager {
       playerPhysics.isSettled,
       playerPhysics.settledSlotIndex,
       playerWheelConfig,
-      playerMods
+      playerMods,
+      playerPhysics.balls
     );
     this.enemyWheelVis.update(
       enemyPhysics.wheelAngle,
@@ -3549,7 +3600,8 @@ export class RenderManager {
       enemyPhysics.isSettled,
       enemyPhysics.settledSlotIndex,
       enemyWheelConfig,
-      enemyMods
+      enemyMods,
+      enemyPhysics.balls
     );
 
     // Animate bell plunger shake
@@ -3582,6 +3634,52 @@ export class RenderManager {
       }
       if (this.eventRightTorchLight) {
         this.eventRightTorchLight.intensity = 1.5 + Math.cos(sec * 2.5) * 0.4;
+      }
+    }
+
+    if (this.bookMesh) {
+      this.bookMesh.visible = (this.engine.runState.gameState === 'COMBAT');
+      
+      // Move to handScene when zoomed to bypass dither/PS1 low-res pixelation pass
+      if (this.isBookZoomed) {
+        if (this.bookMesh.parent !== this.handScene) {
+          this.handScene.add(this.bookMesh);
+        }
+        
+        // Zoomed target in camera space
+        const targetPos = new THREE.Vector3(0, 0, -0.40); // 0.4 units in front of camera
+        targetPos.applyMatrix4(this.camera.matrixWorld);
+        
+        const targetQuat = this.camera.quaternion.clone();
+        targetQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2.2));
+        
+        this.bookMesh.position.lerp(targetPos, 0.15);
+        this.bookMesh.quaternion.slerp(targetQuat, 0.15);
+      } else {
+        if (this.bookMesh.parent !== this.scene) {
+          this.scene.add(this.bookMesh);
+        }
+        
+        // Tabletop target
+        const targetPos = new THREE.Vector3(-0.8, 0.012, 0.15);
+        const targetQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 10, 0));
+        
+        this.bookMesh.position.lerp(targetPos, 0.15);
+        this.bookMesh.quaternion.slerp(targetQuat, 0.15);
+      }
+    }
+
+    if (this.engine.battleState && this.bookMesh && this.bookMesh.visible) {
+      const runState = this.engine.runState;
+      const levels = runState.colorLevels || { red: 1, black: 1, green: 1, gold: 1, purple: 1, cyan: 1, crimson: 1 };
+      const unlocks = runState.colorUnlocks || { red_ability: false, black_ability: false, green_ability: false };
+      const boardMods = this.engine.battleState.boardModifiers;
+      
+      const stateKey = `${levels.red}_${levels.black}_${levels.green}_${levels.gold}_${levels.purple}_${levels.cyan}_${levels.crimson}_${unlocks.red_ability}_${unlocks.black_ability}_${unlocks.green_ability}_${boardMods?.redStreakCount || 0}_${boardMods?.blackStreakCount || 0}_${boardMods?.insuranceActive || false}_${boardMods?.enemyStunTurns || 0}`;
+      
+      if (stateKey !== this.lastBookStateKey) {
+        this.lastBookStateKey = stateKey;
+        this.updateBookTexture();
       }
     }
 
@@ -3903,12 +4001,14 @@ export class RenderManager {
       if (this.deckCostMesh && this.deckCostMesh.parent) {
         this.scene.remove(this.deckCostMesh);
       }
+      this.isBookZoomed = false;
     }
 
     // Camera transitions with smooth Overview pan/tilt
     let targetOffsetX = 0;
     let targetOffsetY = 0;
-    if (this.activeView === 4 && this.isDraggingOverview && this.mouse.x !== -999) {
+    const isMobile = this.ui && this.ui.mobileModeActive;
+    if (this.activeView === 4 && this.isDraggingOverview && this.mouse.x !== -999 && !isMobile) {
       targetOffsetX = this.mouse.x * 1.5; // multiplier for a 180-degree sweep
       targetOffsetY = this.mouse.y * 0.8; // multiplier for a 60-degree sweep
       this.overviewPanOffsetX += (targetOffsetX - this.overviewPanOffsetX) * 0.05;
@@ -3923,7 +4023,7 @@ export class RenderManager {
 
     if (this.activeView === 4) {
       const yaw = (this.overviewPanOffsetX / 1.5) * (Math.PI / 2); // maps to -90 to +90 degrees
-      const pitch = -0.85 + (this.overviewPanOffsetY / 0.8) * (Math.PI / 6); // -0.85 rad default look down (mouse drag offset tilts relative to this)
+      const pitch = -1.15 + (this.overviewPanOffsetY / 0.8) * (Math.PI / 6); // -1.15 rad default look down (mouse drag offset tilts relative to this)
       
       const dir = new THREE.Vector3(0, 0, -1);
       dir.applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch);
@@ -4239,5 +4339,201 @@ export class RenderManager {
     }
 
     return new THREE.Vector3(lx, 0.005, boardCenterZ + lz);
+  }
+
+  initBook() {
+    this.bookCanvas = document.createElement('canvas');
+    this.bookCanvas.width = 512;
+    this.bookCanvas.height = 512;
+    
+    this.bookTexture = new THREE.CanvasTexture(this.bookCanvas);
+    this.bookTexture.colorSpace = THREE.SRGBColorSpace;
+    
+    this.bookMesh = new THREE.Group();
+    
+    const coverGeo = new THREE.BoxGeometry(0.38, 0.015, 0.28);
+    const coverMat = new THREE.MeshBasicMaterial({
+      color: 0x3d1a08
+    });
+    const coverMesh = new THREE.Mesh(coverGeo, coverMat);
+    coverMesh.position.y = -0.0075;
+    coverMesh.castShadow = true;
+    this.bookMesh.add(coverMesh);
+    
+    const pagesGeo = new THREE.PlaneGeometry(0.36, 0.26);
+    const pagesMat = new THREE.MeshBasicMaterial({
+      map: this.bookTexture,
+      fog: false
+    });
+    const pagesMesh = new THREE.Mesh(pagesGeo, pagesMat);
+    pagesMesh.rotation.x = -Math.PI / 2;
+    pagesMesh.position.y = 0.001;
+    this.bookMesh.add(pagesMesh);
+    
+    this.bookMesh.position.set(-0.8, 0.012, 0.15);
+    this.bookMesh.rotation.y = Math.PI / 10;
+    
+    this.scene.add(this.bookMesh);
+    this.updateBookTexture();
+  }
+
+  updateBookTexture() {
+    if (!this.bookCanvas || !this.bookTexture) return;
+    const ctx = this.bookCanvas.getContext('2d')!;
+    
+    ctx.fillStyle = '#f3ebd9';
+    ctx.fillRect(0, 0, 512, 512);
+    
+    ctx.strokeStyle = 'rgba(139, 101, 8, 0.2)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(10, 10, 236, 492);
+    ctx.strokeRect(266, 10, 236, 492);
+    
+    ctx.strokeStyle = '#c8b693';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(256, 10);
+    ctx.lineTo(256, 502);
+    ctx.stroke();
+    
+    const spineGrad = ctx.createLinearGradient(230, 0, 282, 0);
+    spineGrad.addColorStop(0, 'rgba(0, 0, 0, 0.0)');
+    spineGrad.addColorStop(0.5, 'rgba(0, 0, 0, 0.22)');
+    spineGrad.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
+    ctx.fillStyle = spineGrad;
+    ctx.fillRect(230, 0, 52, 512);
+    
+    const runState = this.engine.runState;
+    const levels = runState.colorLevels || { red: 1, black: 1, green: 1, gold: 1, purple: 1, cyan: 1, crimson: 1 };
+    const unlocks = runState.colorUnlocks || { red_ability: false, black_ability: false, green_ability: false };
+    const pm = runState.playerWheel.payoutMultipliers;
+    
+    const getMultText = (color: string, base: number) => {
+      const scale = this.engine.getScaledPayoutMultiplier(color as any, base);
+      return `${scale.toFixed(1)}x`;
+    };
+    
+    // LEFT PAGE
+    ctx.fillStyle = '#3e2723';
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 24px "Courier Prime", Courier, monospace';
+    ctx.fillText('COLOR LEVELS', 128, 48);
+    
+    ctx.font = 'italic 12px "Courier Prime", Courier, monospace';
+    ctx.fillText('Basic Multipliers', 128, 70);
+    
+    ctx.strokeStyle = 'rgba(62, 39, 35, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(30, 80);
+    ctx.lineTo(226, 80);
+    ctx.stroke();
+    
+    const basicColors = [
+      { name: 'Red', hex: '#d32f2f', lvl: levels.red, mult: getMultText('red', pm.red), ability: unlocks.red_ability ? '🔥 FEVER' : '🔒 LOCKED' },
+      { name: 'Black', hex: '#333333', lvl: levels.black, mult: getMultText('black', pm.black), ability: unlocks.black_ability ? '❄️ GLACIER' : '🔒 LOCKED' },
+      { name: 'Green', hex: '#2e7d32', lvl: levels.green, mult: getMultText('green', pm.green), ability: unlocks.green_ability ? '⚡ SYNAPSE' : '🔒 LOCKED' },
+      { name: 'Gold', hex: '#f57f17', lvl: levels.gold, mult: getMultText('gold', pm.gold || 4.0), ability: '✨ MIDAS' }
+    ];
+    
+    ctx.textAlign = 'left';
+    basicColors.forEach((c, idx) => {
+      const y = 120 + idx * 85;
+      
+      ctx.fillStyle = c.hex;
+      ctx.beginPath();
+      ctx.arc(35, y, 7, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillStyle = '#3e2723';
+      ctx.font = 'bold 18px "Courier Prime", Courier, monospace';
+      ctx.fillText(c.name.toUpperCase(), 50, y + 6);
+      
+      ctx.font = 'bold 15px "Courier Prime", Courier, monospace';
+      ctx.fillText(`Lvl ${c.lvl}`, 50, y + 26);
+      ctx.fillText(c.mult, 140, y + 26);
+      
+      ctx.font = 'bold 12px "Courier Prime", Courier, monospace';
+      ctx.fillStyle = c.ability.includes('LOCKED') ? '#8d6e63' : '#d84315';
+      ctx.fillText(c.ability, 50, y + 46);
+    });
+    
+    // RIGHT PAGE
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#3e2723';
+    ctx.font = 'bold 24px "Courier Prime", Courier, monospace';
+    ctx.fillText('SPECIAL TYPES', 384, 48);
+    
+    ctx.font = 'italic 12px "Courier Prime", Courier, monospace';
+    ctx.fillText('Occurrences & Effects', 384, 70);
+    
+    ctx.strokeStyle = 'rgba(62, 39, 35, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(286, 80);
+    ctx.lineTo(482, 80);
+    ctx.stroke();
+    
+    const specialColors = [
+      { name: 'Purple', hex: '#7b1fa2', lvl: levels.purple, mult: getMultText('purple', pm.purple || 4.0), ability: '🔮 CURSE' },
+      { name: 'Cyan', hex: '#0097a7', lvl: levels.cyan, mult: getMultText('cyan', pm.cyan || 4.0), ability: '🔋 CHARGE' },
+      { name: 'Crimson', hex: '#c2185b', lvl: levels.crimson, mult: getMultText('crimson', pm.crimson || 6.0), ability: '🩸 SURGE' }
+    ];
+    
+    ctx.textAlign = 'left';
+    specialColors.forEach((c, idx) => {
+      const y = 120 + idx * 85;
+      
+      ctx.fillStyle = c.hex;
+      ctx.beginPath();
+      ctx.arc(295, y, 7, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillStyle = '#3e2723';
+      ctx.font = 'bold 18px "Courier Prime", Courier, monospace';
+      ctx.fillText(c.name.toUpperCase(), 310, y + 6);
+      
+      ctx.font = 'bold 15px "Courier Prime", Courier, monospace';
+      const isLosing = this.engine.battleState && (this.engine.battleState.playerScore || 0) < (this.engine.battleState.enemyScore || 0);
+      const multDisplay = c.name === 'Crimson' && isLosing ? `${c.mult} (x2)` : c.mult;
+      ctx.fillText(`Lvl ${c.lvl}  ${multDisplay}`, 310, y + 26);
+      
+      ctx.font = 'bold 12px "Courier Prime", Courier, monospace';
+      ctx.fillStyle = '#d84315';
+      ctx.fillText(c.ability, 310, y + 46);
+    });
+    
+    const modY = 385;
+    ctx.fillStyle = '#3e2723';
+    ctx.font = 'bold 18px "Courier Prime", Courier, monospace';
+    ctx.fillText('CURRENT MODS', 300, modY);
+    
+    ctx.strokeStyle = 'rgba(62, 39, 35, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(286, modY + 8);
+    ctx.lineTo(482, modY + 8);
+    ctx.stroke();
+    
+    ctx.font = 'bold 13px "Courier Prime", Courier, monospace';
+    ctx.fillStyle = '#4e342e';
+    
+    const boardMods = this.engine.battleState?.boardModifiers;
+    let modText1 = 'Streak: None';
+    if (boardMods) {
+      if ((boardMods.redStreakCount || 0) > 0) modText1 = `Red Streak: x${boardMods.redStreakCount}`;
+      else if ((boardMods.blackStreakCount || 0) > 0) modText1 = `Black Streak: x${boardMods.blackStreakCount}`;
+    }
+    ctx.fillText(modText1, 300, modY + 28);
+    
+    let modText2 = 'Shield: Inactive';
+    if (boardMods?.insuranceActive) modText2 = 'Insurance Active';
+    ctx.fillText(modText2, 300, modY + 48);
+    
+    let modText3 = 'Stun Turns: 0';
+    if (boardMods?.enemyStunTurns) modText3 = `Enemy Stunned: ${boardMods.enemyStunTurns}t`;
+    ctx.fillText(modText3, 300, modY + 68);
+    
+    this.bookTexture.needsUpdate = true;
   }
 }

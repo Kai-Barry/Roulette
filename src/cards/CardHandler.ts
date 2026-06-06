@@ -1,16 +1,20 @@
 import { Card, RunState, BattleState } from '../core/Types';
+import { getSlotColor } from '../physics/RoulettePhysics';
+import { getCardById } from './CardDatabase';
 
 const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31];
 
 export class CardHandler {
   static applyEffect(card: Card, runState: RunState, battleState: BattleState): boolean {
     // Check if player has enough chips to play the card
-    if (battleState.chipsPool < card.cost) {
+    // Check if player has enough chips to play the card (or if freeCardsActive modifier is active)
+    const cardCost = (battleState.boardModifiers as any).freeCardsActive ? 0 : card.cost;
+    if (battleState.chipsPool < cardCost) {
       return false; // Cannot afford
     }
     
     // Deduct cost
-    battleState.chipsPool -= card.cost;
+    battleState.chipsPool -= cardCost;
 
     // Initialize extended properties if undefined
     if (!battleState.boardModifiers.dozenMultipliers) battleState.boardModifiers.dozenMultipliers = {};
@@ -24,6 +28,11 @@ export class CardHandler {
     if (!battleState.boardModifiers.goldFoils) battleState.boardModifiers.goldFoils = [];
     if (!battleState.boardModifiers.copperPlates) battleState.boardModifiers.copperPlates = [];
     if (!battleState.boardModifiers.mirrorSlots) battleState.boardModifiers.mirrorSlots = {};
+    if (!battleState.boardModifiers.convertNumbersToGreen) battleState.boardModifiers.convertNumbersToGreen = [];
+    if (!battleState.boardModifiers.convertNumbersToGold) battleState.boardModifiers.convertNumbersToGold = [];
+    if (!battleState.boardModifiers.convertNumbersToPurple) battleState.boardModifiers.convertNumbersToPurple = [];
+    if (!battleState.boardModifiers.convertNumbersToCyan) battleState.boardModifiers.convertNumbersToCyan = [];
+    if (!battleState.boardModifiers.convertNumbersToCrimson) battleState.boardModifiers.convertNumbersToCrimson = [];
 
     switch (card.effectId) {
       // --- PAYOUT MODIFIERS ---
@@ -327,6 +336,18 @@ export class CardHandler {
         battleState.physicsModifiers.nudgeDistance = 1;
         break;
 
+      case 'TRIPLE_THREAT':
+        battleState.physicsModifiers.multiballCount = 3;
+        break;
+
+      case 'PEG_SPLITTER':
+        battleState.physicsModifiers.splitPegActive = true;
+        break;
+
+      case 'SHOTGUN_BLAST':
+        battleState.physicsModifiers.shotgunTime = 1.5;
+        break;
+
 
       // --- BOARD MODIFIERS ---
       case 'CRIMSON_FLOOD':
@@ -503,6 +524,17 @@ export class CardHandler {
         battleState.boardModifiers.copperPlates.push(...card.markedSlots);
         break;
 
+      case 'RED_SEA':
+        battleState.boardModifiers.convertAllToRed = true;
+        break;
+
+      case 'ONYX_VOID':
+        battleState.boardModifiers.convertAllToBlack = true;
+        break;
+
+      case 'EMERALD_DREAM':
+        battleState.boardModifiers.convertAllToGreen = true;
+        break;
 
 
       // --- UTILITY MODIFIERS ---
@@ -672,6 +704,223 @@ export class CardHandler {
 
       case 'LUCKY_CHARM':
         // Handled in resolveSpin
+        break;
+
+      case 'PAINT_RED':
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          const blackSlots: number[] = [];
+          for (let i = 0; i <= 36; i++) {
+            if (getSlotColor(i, battleState.playerWheel, battleState.boardModifiers) === 'black') {
+              blackSlots.push(i);
+            }
+          }
+          const shuffled = [...blackSlots].sort(() => Math.random() - 0.5);
+          card.markedSlots = shuffled.slice(0, 5);
+        }
+        card.markedSlots.forEach(slot => {
+          if (!battleState.boardModifiers.convertNumbersToRed.includes(slot)) {
+            battleState.boardModifiers.convertNumbersToRed.push(slot);
+          }
+        });
+        break;
+
+      case 'PAINT_BLACK':
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          const redSlots: number[] = [];
+          for (let i = 0; i <= 36; i++) {
+            if (getSlotColor(i, battleState.playerWheel, battleState.boardModifiers) === 'red') {
+              redSlots.push(i);
+            }
+          }
+          const shuffled = [...redSlots].sort(() => Math.random() - 0.5);
+          card.markedSlots = shuffled.slice(0, 5);
+        }
+        card.markedSlots.forEach(slot => {
+          if (!battleState.boardModifiers.convertNumbersToBlack.includes(slot)) {
+            battleState.boardModifiers.convertNumbersToBlack.push(slot);
+          }
+        });
+        break;
+
+      case 'PAINT_GREEN':
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          const validSlots: number[] = [];
+          for (let i = 0; i <= 36; i++) {
+            const col = getSlotColor(i, battleState.playerWheel, battleState.boardModifiers);
+            if (col === 'red' || col === 'black') {
+              validSlots.push(i);
+            }
+          }
+          const shuffled = [...validSlots].sort(() => Math.random() - 0.5);
+          card.markedSlots = shuffled.slice(0, 3);
+        }
+        card.markedSlots.forEach(slot => {
+          if (!battleState.boardModifiers.convertNumbersToGreen!.includes(slot)) {
+            battleState.boardModifiers.convertNumbersToGreen!.push(slot);
+          }
+        });
+        break;
+
+      case 'PAINT_GOLD':
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          const validSlots: number[] = [];
+          for (let i = 0; i <= 36; i++) {
+            if (getSlotColor(i, battleState.playerWheel, battleState.boardModifiers) !== 'gold') {
+              validSlots.push(i);
+            }
+          }
+          const shuffled = [...validSlots].sort(() => Math.random() - 0.5);
+          card.markedSlots = shuffled.slice(0, 2);
+        }
+        card.markedSlots.forEach(slot => {
+          if (!battleState.boardModifiers.convertNumbersToGold!.includes(slot)) {
+            battleState.boardModifiers.convertNumbersToGold!.push(slot);
+          }
+        });
+        break;
+
+      case 'PAINT_PURPLE':
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          const validSlots: number[] = [];
+          for (let i = 0; i <= 36; i++) {
+            if (getSlotColor(i, battleState.playerWheel, battleState.boardModifiers) !== 'purple') {
+              validSlots.push(i);
+            }
+          }
+          const shuffled = [...validSlots].sort(() => Math.random() - 0.5);
+          card.markedSlots = shuffled.slice(0, 2);
+        }
+        card.markedSlots.forEach(slot => {
+          if (!battleState.boardModifiers.convertNumbersToPurple!.includes(slot)) {
+            battleState.boardModifiers.convertNumbersToPurple!.push(slot);
+          }
+        });
+        break;
+
+      case 'PAINT_CYAN':
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          const validSlots: number[] = [];
+          for (let i = 0; i <= 36; i++) {
+            if (getSlotColor(i, battleState.playerWheel, battleState.boardModifiers) !== 'cyan') {
+              validSlots.push(i);
+            }
+          }
+          const shuffled = [...validSlots].sort(() => Math.random() - 0.5);
+          card.markedSlots = shuffled.slice(0, 2);
+        }
+        card.markedSlots.forEach(slot => {
+          if (!battleState.boardModifiers.convertNumbersToCyan!.includes(slot)) {
+            battleState.boardModifiers.convertNumbersToCyan!.push(slot);
+          }
+        });
+        break;
+
+      case 'PAINT_CRIMSON':
+        if (!card.markedSlots || card.markedSlots.length === 0) {
+          const validSlots: number[] = [];
+          for (let i = 0; i <= 36; i++) {
+            if (getSlotColor(i, battleState.playerWheel, battleState.boardModifiers) !== 'crimson') {
+              validSlots.push(i);
+            }
+          }
+          const shuffled = [...validSlots].sort(() => Math.random() - 0.5);
+          card.markedSlots = shuffled.slice(0, 2);
+        }
+        card.markedSlots.forEach(slot => {
+          if (!battleState.boardModifiers.convertNumbersToCrimson!.includes(slot)) {
+            battleState.boardModifiers.convertNumbersToCrimson!.push(slot);
+          }
+        });
+        break;
+
+      case 'PAINT_COMPLEMENTARY':
+        battleState.boardModifiers.convertAllToRed = true;
+        break;
+
+      case 'PAINT_INVERSE':
+        battleState.boardModifiers.convertAllToBlack = true;
+        break;
+
+      case 'PAINT_SINGLE_DIGIT':
+        for (let i = 1; i <= 9; i++) {
+          if (!battleState.boardModifiers.convertNumbersToGreen!.includes(i)) {
+            battleState.boardModifiers.convertNumbersToGreen!.push(i);
+          }
+        }
+        break;
+
+      case 'PAINT_PRIME':
+        PRIMES.forEach(prime => {
+          if (!battleState.boardModifiers.convertNumbersToGreen!.includes(prime)) {
+            battleState.boardModifiers.convertNumbersToGreen!.push(prime);
+          }
+        });
+        break;
+
+      case 'PAINT_HIGH_GILD':
+        for (let i = 19; i <= 36; i++) {
+          if (!battleState.boardModifiers.convertNumbersToGold!.includes(i)) {
+            battleState.boardModifiers.convertNumbersToGold!.push(i);
+          }
+        }
+        break;
+
+      case 'ESSENCE_CHIP':
+        battleState.chipsPool += 4;
+        break;
+
+      case 'CHIP_MAKER':
+        for (let i = 0; i < 3; i++) {
+          const chipCard = getCardById('money_essence_chip');
+          (chipCard as any).isTemp = true;
+          battleState.drawPile.push(chipCard);
+        }
+        battleState.drawPile.sort(() => Math.random() - 0.5);
+        if (battleState.hand.length < 8) {
+          if (battleState.drawPile.length === 0 && battleState.discardPile.length > 0) {
+            battleState.drawPile = [...battleState.discardPile].sort(() => Math.random() - 0.5);
+            battleState.discardPile = [];
+          }
+          if (battleState.drawPile.length > 0) {
+            battleState.hand.push(battleState.drawPile.pop()!);
+          }
+        }
+        break;
+
+      case 'HIGH_STAKES_SACRIFICE':
+        battleState.chipsPool += 12;
+        if (battleState.hand.length > 0) {
+          const randIdx = Math.floor(Math.random() * battleState.hand.length);
+          battleState.hand.splice(randIdx, 1);
+        }
+        break;
+
+      case 'TAX_REFUND':
+        const chipCount = battleState.discardPile.filter(c => c.effectId === 'ESSENCE_CHIP').length;
+        battleState.chipsPool += chipCount * 2;
+        break;
+
+      case 'CAPITAL_VENTURE':
+        for (let i = 0; i < 5; i++) {
+          const chipCard = getCardById('money_essence_chip');
+          (chipCard as any).isTemp = true;
+          battleState.discardPile.push(chipCard);
+        }
+        if (!battleState.boardModifiers.capitalVentureCount) {
+          battleState.boardModifiers.capitalVentureCount = 0;
+        }
+        battleState.boardModifiers.capitalVentureCount += 25;
+        break;
+
+      case 'GOLDEN_HEIST':
+        for (let i = 0; i < 2; i++) {
+          if (battleState.hand.length < 8) {
+            const chipCard = getCardById('money_essence_chip');
+            (chipCard as any).isTemp = true;
+            battleState.hand.push(chipCard);
+          }
+        }
+        (battleState.boardModifiers as any).goldenHeistActive = true;
         break;
 
       default:

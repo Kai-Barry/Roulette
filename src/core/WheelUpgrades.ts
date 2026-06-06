@@ -423,7 +423,7 @@ export const BOARD_UPGRADES: Record<string, BoardUpgrade> = {
   lucky_seven: {
     id: 'lucky_seven',
     name: "Sinner's Seven",
-    description: 'Number 7 becomes a Golden Lucky slot: landing on it heals 6 Blood HP.',
+    description: 'Number 7 becomes a Golden Lucky slot: landing on it heals 6 HP.',
     cost: 20,
     effectType: 'lucky_number',
     value: { number: 7, heal: 6 }
@@ -443,6 +443,86 @@ export const BOARD_UPGRADES: Record<string, BoardUpgrade> = {
     cost: 12,
     effectType: 'physics_mod',
     value: { field: 'friction', multiplier: 1.25 }
+  },
+  red_ability_unlock: {
+    id: 'red_ability_unlock',
+    name: 'Fever Ignition',
+    description: 'Unlock Red slot ability: consecutive Red landing builds Heat Combo (bets multiplier boosted to 3.5x).',
+    cost: 18,
+    effectType: 'physics_mod',
+    value: null
+  },
+  black_ability_unlock: {
+    id: 'black_ability_unlock',
+    name: 'Glacier Core',
+    description: 'Unlock Black slot ability: consecutive Black landing builds Glacier Shield (drains score from opponent).',
+    cost: 18,
+    effectType: 'physics_mod',
+    value: null
+  },
+  green_ability_unlock: {
+    id: 'green_ability_unlock',
+    name: 'Synapse Link',
+    description: 'Unlock Green slot ability: landing on Green sets all cards cost to 0 next turn.',
+    cost: 22,
+    effectType: 'physics_mod',
+    value: null
+  },
+  level_red: {
+    id: 'level_red',
+    name: 'Planet Mars',
+    description: 'Level up Red slots. Increases Red payout multiplier by +0.2x and Fever combo power.',
+    cost: 15,
+    effectType: 'physics_mod',
+    value: { color: 'red' }
+  },
+  level_black: {
+    id: 'level_black',
+    name: 'Planet Pluto',
+    description: 'Level up Black slots. Increases Black payout multiplier by +0.2x and Glacier drain power.',
+    cost: 15,
+    effectType: 'physics_mod',
+    value: { color: 'black' }
+  },
+  level_green: {
+    id: 'level_green',
+    name: 'Planet Earth',
+    description: 'Level up Green slots. Increases Green payout multiplier by +2.0x and Synapse bonus power.',
+    cost: 15,
+    effectType: 'physics_mod',
+    value: { color: 'green' }
+  },
+  level_gold: {
+    id: 'level_gold',
+    name: 'Planet Saturn',
+    description: 'Level up Gold slots. Increases Gold payout multiplier by +0.5x, points and shop chips returns.',
+    cost: 15,
+    effectType: 'physics_mod',
+    value: { color: 'gold' }
+  },
+  level_purple: {
+    id: 'level_purple',
+    name: 'Planet Neptune',
+    description: 'Level up Purple slots. Increases Purple payout multiplier by +0.5x and corruption stun turns.',
+    cost: 15,
+    effectType: 'physics_mod',
+    value: { color: 'purple' }
+  },
+  level_cyan: {
+    id: 'level_cyan',
+    name: 'Planet Uranus',
+    description: 'Level up Cyan slots. Increases Cyan payout multiplier by +0.5x, points and card draw counts.',
+    cost: 15,
+    effectType: 'physics_mod',
+    value: { color: 'cyan' }
+  },
+  level_crimson: {
+    id: 'level_crimson',
+    name: 'Planet Jupiter',
+    description: 'Level up Crimson slots. Increases Crimson payout multiplier by +0.5x and points reward.',
+    cost: 15,
+    effectType: 'physics_mod',
+    value: { color: 'crimson' }
   }
 };
 

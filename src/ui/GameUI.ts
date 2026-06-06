@@ -40,7 +40,7 @@ export class GameUI {
   private customWheelData = {
     id: 'custom',
     name: 'Custom Destroyer',
-    description: 'A bespoke engine of risk and blood.',
+    description: 'A bespoke engine of risk and reward.',
     numbers: [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26],
     greenNumbers: [0],
     colors: {} as Record<number, SlotColor>,
@@ -162,7 +162,7 @@ export class GameUI {
         const canAfford = state.chips >= healCost && state.hp < state.maxHp;
         const isFull = state.hp >= state.maxHp;
         descBox.innerHTML = `
-          <div class="shop-desc-title">BLOOD INFUSION</div>
+          <div class="shop-desc-title">HP TRANSFUSION</div>
           <div class="shop-desc-text">${formatDescription('Transfuse essence back into your veins. Heals 25 HP.', isPoints)}</div>
           <div class="shop-desc-hint">Cost: ${healCost} ⚡ · ${isFull ? 'Already Full HP' : canAfford ? 'Click Bell or Confirm Button to Buy' : 'Cannot Afford'}</div>
         `;
@@ -186,17 +186,32 @@ export class GameUI {
         }
       }
     } else {
-      const upgrade = BOARD_UPGRADES[itemId];
+      let upgrade = BOARD_UPGRADES[itemId];
       if (upgrade) {
-        const isOwned = state.playerWheel.upgrades.includes(itemId);
-        const canAfford = state.chips >= upgrade.cost && !isOwned;
+        let isOwned = state.playerWheel.upgrades.includes(itemId);
+        let cost = upgrade.cost;
+        let desc = upgrade.description;
+        let name = upgrade.name;
+        
+        if (itemId.startsWith('level_')) {
+          const color = itemId.replace('level_', '') as SlotColor;
+          const currentLevel = state.colorLevels?.[color] || 1;
+          cost = 15 + (currentLevel - 1) * 5;
+          if (currentLevel >= 10) {
+            isOwned = true;
+          }
+          name = `${name} (Lvl ${currentLevel})`;
+          desc = `${desc} Currently: Lvl ${currentLevel}.`;
+        }
+        
+        const canAfford = state.chips >= cost && !isOwned;
         descBox.innerHTML = `
-          <div class="shop-desc-title">${upgrade.name.toUpperCase()}</div>
-          <div class="shop-desc-text">${formatDescription(upgrade.description, isPoints)}</div>
-          <div class="shop-desc-hint">Cost: ${upgrade.cost} ⚡ · ${isOwned ? 'OWNED' : canAfford ? 'Click Bell or Confirm to Buy' : 'Cannot Afford'}</div>
+          <div class="shop-desc-title">${name.toUpperCase()}</div>
+          <div class="shop-desc-text">${formatDescription(desc, isPoints)}</div>
+          <div class="shop-desc-hint">Cost: ${cost} ⚡ · ${isOwned ? (itemId.startsWith('level_') ? 'MAXED' : 'OWNED') : canAfford ? 'Click Bell or Confirm to Buy' : 'Cannot Afford'}</div>
         `;
         confirmBtn.disabled = !canAfford;
-        confirmBtn.textContent = isOwned ? 'OWNED' : `BUY UPGRADE: ${upgrade.cost} ⚡`;
+        confirmBtn.textContent = isOwned ? (itemId.startsWith('level_') ? 'MAXED' : 'OWNED') : `BUY UPGRADE: ${cost} ⚡`;
       } else {
         renderer.selectedShopItemId = null;
         this.updateShopDescriptionBox();
@@ -229,7 +244,7 @@ export class GameUI {
     if (choiceId === '1') {
       title = 'INJECT SYRINGE';
       desc = 'Transfuse a high-concentration dose of volatile essence directly into your bloodstream. Risk of rupture is high, but the resource yield is substantial.';
-      hint = 'Consequence: Lose 8 HP (Blood) · Gain 25 chips (Essence) | Click tablet again or Confirm to accept';
+      hint = 'Consequence: Lose 8 HP · Gain 25 chips (Essence) | Click tablet again or Confirm to accept';
     } else if (choiceId === '2') {
       title = 'ACCEPT MAGNET';
       desc = 'Draw a heavy iron lodging stone. Induces strong magnetic attractors inside the wheel slot channels to draw the ball towards copper pockets.';
@@ -320,7 +335,7 @@ export class GameUI {
           <!-- TOP HUD (Global Stats) -->
           <div id="hud-panel" class="hidden">
             <div class="hud-item hp-display">
-              <span class="label">BLOOD:</span>
+              <span class="label">HP:</span>
               <div class="bar-container">
                 <div id="hud-hp-bar" class="bar hp-bar" style="width: 100%"></div>
                 <span id="hud-hp-text" class="bar-text">80 / 80</span>
@@ -386,6 +401,9 @@ export class GameUI {
                   <option value="board">Board</option>
                   <option value="payout">Payout</option>
                   <option value="utility">Utility</option>
+                  <option value="chaos">Chaos</option>
+                  <option value="paint">Paint</option>
+                  <option value="money">Money</option>
                 </select>
                 <select id="dev-card-filter-rarity" class="dev-select" style="flex: 1; font-size: 11px; height: 24px;">
                   <option value="all">All Rarities</option>
@@ -607,6 +625,9 @@ export class GameUI {
                 <button class="filter-btn" data-filter-type="type" data-value="physics">Physics</button>
                 <button class="filter-btn" data-filter-type="type" data-value="board">Board</button>
                 <button class="filter-btn" data-filter-type="type" data-value="utility">Utility</button>
+                <button class="filter-btn" data-filter-type="type" data-value="chaos">Chaos</button>
+                <button class="filter-btn" data-filter-type="type" data-value="paint">Paint</button>
+                <button class="filter-btn" data-filter-type="type" data-value="money">Money</button>
               </div>
             </div>
             
@@ -632,7 +653,7 @@ export class GameUI {
                 </div>
                 <div class="input-group" style="margin-top: 10px;">
                   <label>Description:</label>
-                  <input type="text" id="cust-wheel-desc" value="A bespoke engine of risk and blood." maxlength="80">
+                  <input type="text" id="cust-wheel-desc" value="A bespoke engine of risk and reward." maxlength="80">
                 </div>
                 
                 <div class="payout-inputs-header">Payout Multipliers:</div>
@@ -1657,7 +1678,7 @@ export class GameUI {
       } else if (sortBy === 'type') {
         return a.type.localeCompare(b.type);
       } else if (sortBy === 'default') {
-        const typeOrders: Record<string, number> = { 'physics': 0, 'board': 1, 'payout': 2, 'utility': 3 };
+        const typeOrders: Record<string, number> = { 'physics': 0, 'board': 1, 'payout': 2, 'utility': 3, 'chaos': 4, 'paint': 5, 'money': 6 };
         const rarityOrders: Record<string, number> = { 'common': 0, 'uncommon': 1, 'rare': 2, 'legendary': 3 };
         const typeDiff = (typeOrders[a.type] ?? 0) - (typeOrders[b.type] ?? 0);
         if (typeDiff !== 0) return typeDiff;
@@ -1735,13 +1756,14 @@ export class GameUI {
       this.engine.battleState.isResolving = true;
     }
 
-    const colorText = res.color.toUpperCase();
-    const outcomeText = `${res.number} ${colorText}`;
+    const outcomesText = res.allOutcomes && res.allOutcomes.length > 0
+      ? res.allOutcomes.map(o => `${o.number} ${o.color.toUpperCase()}`).join(', ')
+      : `${res.number} ${res.color.toUpperCase()}`;
     
     if (res.damageDealt > 0) {
-      this.spinMessage = `LANDED ON: ${outcomeText}! <br><span class="text-green">HIT! DEALT ${res.damageDealt} DAMAGE!</span>`;
+      this.spinMessage = `LANDED ON: ${outcomesText}! <br><span class="text-green">HIT! DEALT ${res.damageDealt} DAMAGE!</span>`;
     } else {
-      this.spinMessage = `LANDED ON: ${outcomeText}. <br><span class="text-red">MISS. NO DAMAGE DEALT.</span>`;
+      this.spinMessage = `LANDED ON: ${outcomesText}. <br><span class="text-red">MISS. NO DAMAGE DEALT.</span>`;
     }
     
     this.render();
@@ -1846,26 +1868,27 @@ export class GameUI {
       this.engine.battleState.isResolving = true;
     }
 
-    const colorText = res.color.toUpperCase();
-    const outcomeText = `${res.number} ${colorText}`;
+    const outcomesText = res.allOutcomes && res.allOutcomes.length > 0
+      ? res.allOutcomes.map(o => `${o.number} ${o.color.toUpperCase()}`).join(', ')
+      : `${res.number} ${res.color.toUpperCase()}`;
     
     const intent = this.engine.battleState?.enemy.intent;
     if (res.enemyWon) {
       if (intent && intent.type === 'attack') {
         if (res.playerDamageTaken > 0) {
-          this.spinMessage = `ENEMY LANDED ON: ${outcomeText}! <br><span class="text-red">HIT! YOU TAKE ${res.playerDamageTaken} DAMAGE!</span>`;
+          this.spinMessage = `ENEMY LANDED ON: ${outcomesText}! <br><span class="text-red">HIT! YOU TAKE ${res.playerDamageTaken} DAMAGE!</span>`;
         } else {
-          this.spinMessage = `ENEMY LANDED ON: ${outcomeText}! <br><span class="text-green">BLOCKED! Shield absorbed the attack!</span>`;
+          this.spinMessage = `ENEMY LANDED ON: ${outcomesText}! <br><span class="text-green">BLOCKED! Shield absorbed the attack!</span>`;
         }
       } else if (intent && intent.type === 'steal_chips') {
-        this.spinMessage = `ENEMY LANDED ON: ${outcomeText}! <br><span class="text-red">STEAL! THEY STOLE ${intent.value} CHIPS!</span>`;
+        this.spinMessage = `ENEMY LANDED ON: ${outcomesText}! <br><span class="text-red">STEAL! THEY STOLE ${intent.value} CHIPS!</span>`;
       } else if (intent && intent.type === 'physics_debuff') {
-        this.spinMessage = `ENEMY LANDED ON: ${outcomeText}! <br><span class="text-red">DEBUFF! WHEEL FRICTION DOUBLED!</span>`;
+        this.spinMessage = `ENEMY LANDED ON: ${outcomesText}! <br><span class="text-red">DEBUFF! WHEEL FRICTION DOUBLED!</span>`;
       } else {
-        this.spinMessage = `ENEMY LANDED ON: ${outcomeText}! <br><span class="text-red">HIT! Effect triggered!</span>`;
+        this.spinMessage = `ENEMY LANDED ON: ${outcomesText}! <br><span class="text-red">HIT! Effect triggered!</span>`;
       }
     } else {
-      this.spinMessage = `ENEMY LANDED ON: ${outcomeText}. <br><span class="text-green">MISS! NO DAMAGE TAKEN.</span>`;
+      this.spinMessage = `ENEMY LANDED ON: ${outcomesText}. <br><span class="text-green">MISS! NO DAMAGE TAKEN.</span>`;
     }
     
     this.render();
@@ -1900,11 +1923,35 @@ export class GameUI {
     }
 
     // 1. Populate Slot badge
-    badge.innerText = res.number.toString();
-    badge.className = 'res-badge';
-    if (res.color === 'red') badge.classList.add('red-bg');
-    else if (res.color === 'black') badge.classList.add('black-bg');
-    else badge.classList.add('green-bg');
+    if (res.allOutcomes && res.allOutcomes.length > 1) {
+      badge.innerHTML = res.allOutcomes.map(o => {
+        let bgClass = 'green-bg';
+        if (o.color === 'red') bgClass = 'red-bg';
+        else if (o.color === 'black') bgClass = 'black-bg';
+        else if (o.color === 'gold') bgClass = 'gold-bg';
+        else if (o.color === 'purple') bgClass = 'purple-bg';
+        else if (o.color === 'cyan') bgClass = 'cyan-bg';
+        else if (o.color === 'crimson') bgClass = 'crimson-bg';
+        return `<span class="res-sub-badge ${bgClass}" style="margin: 0 4px; padding: 2px 8px; border-radius: 4px; font-weight: bold; border: 1px solid rgba(255,255,255,0.2); font-size: 1.2rem;">${o.number}</span>`;
+      }).join('');
+      badge.className = 'res-badge-container';
+      badge.style.border = 'none';
+      badge.style.boxShadow = 'none';
+      badge.style.background = 'none';
+    } else {
+      badge.innerText = res.number.toString();
+      badge.className = 'res-badge';
+      badge.style.border = '';
+      badge.style.boxShadow = '';
+      badge.style.background = '';
+      if (res.color === 'red') badge.classList.add('red-bg');
+      else if (res.color === 'black') badge.classList.add('black-bg');
+      else if (res.color === 'green') badge.classList.add('green-bg');
+      else if (res.color === 'gold') badge.classList.add('gold-bg');
+      else if (res.color === 'purple') badge.classList.add('purple-bg');
+      else if (res.color === 'cyan') badge.classList.add('cyan-bg');
+      else if (res.color === 'crimson') badge.classList.add('crimson-bg');
+    }
 
     // 2. Populate Summary text
     const isPointsMode = this.engine.runState.combatMode === 'points';
@@ -2101,8 +2148,8 @@ export class GameUI {
       this.render();
       
       setTimeout(() => {
-        this.showSpinReport(false);
-      }, 1200);
+        this.triggerOpponentTurnSequence();
+      }, 800);
     }
   }
 
@@ -2442,6 +2489,10 @@ export class GameUI {
     if (!wheel) return;
 
     const pm = wheel.payoutMultipliers;
+    const levels = state.colorLevels || { red: 1, black: 1, green: 1, gold: 1, purple: 1, cyan: 1, crimson: 1 };
+    const pmRed = this.engine.getScaledPayoutMultiplier('red', pm.red);
+    const pmBlack = this.engine.getScaledPayoutMultiplier('black', pm.black);
+    const pmGreen = this.engine.getScaledPayoutMultiplier('green', pm.green);
 
     const flavorText = this.mobileModeActive
       ? 'Purchase upgrades to shape your wheel layout. Reroll for new offers.'
@@ -2461,9 +2512,9 @@ export class GameUI {
           <div>CHIPS: <span class="forge-stats-chips">${state.chips} ⚡</span></div>
           <div class="forge-stats-multipliers" ${multipliersStyle}>
             SLOTS: <span style="color:#fff;">${wheel.numbers.length}</span> | 
-            RED: <span style="color:#ef5350;">${pm.red}x</span> | 
-            BLACK: <span style="color:#aaaaaa;">${pm.black}x</span> | 
-            GREEN: <span style="color:#4caf50;">${pm.green}x</span> | 
+            RED (Lvl ${levels.red}): <span style="color:#ef5350;">${pmRed}x</span> | 
+            BLACK (Lvl ${levels.black}): <span style="color:#aaaaaa;">${pmBlack}x</span> | 
+            GREEN (Lvl ${levels.green}): <span style="color:#4caf50;">${pmGreen}x</span> | 
             SINGLE #: <span style="color:#ffd54f;">${pm.number}x</span> | 
             ODD: <span style="color:#ffd54f;">${pm.odd}x</span> | 
             EVEN: <span style="color:#0288d1;">${pm.even}x</span>
@@ -2484,6 +2535,33 @@ export class GameUI {
             </button>
           </div>
         </div>
+
+        <!-- Mobile Forge Offers List -->
+        ${this.mobileModeActive && state.forgeCards ? `
+          <div id="forge-mobile-container" class="shop-grid">
+            ${state.forgeCards.map(card => {
+              const rarityClass = `shop-card-rarity-${card.rarity === 'gold' ? 'legendary' : card.rarity === 'silver' ? 'rare' : 'common'}`;
+              const canAfford = state.chips >= card.cost;
+              return `
+                <div class="shop-card-item glass-panel ${rarityClass}">
+                  <div class="shop-card-meta">${card.rarity.toUpperCase()} UPGRADE</div>
+                  <div class="card-title">${card.name}</div>
+                  <div class="card-desc">${card.description}</div>
+                  ${card.purchased ? `
+                    <span class="upgrade-badge">PURCHASED</span>
+                    <button class="btn primary-btn buy-btn" style="opacity: 0.5;" disabled>
+                      OWNED
+                    </button>
+                  ` : `
+                    <button class="btn primary-btn buy-btn forge-buy-btn" data-id="${card.id}" ${!canAfford ? 'disabled' : ''}>
+                      BUY: ${card.cost} ⚡
+                    </button>
+                  `}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        ` : ''}
       </div>
     `;
 
@@ -2513,6 +2591,25 @@ export class GameUI {
         this.sound.playCardSwoosh();
         state.gameState = 'MAP';
         this.render();
+      });
+    }
+
+    // Bind Mobile Buy events
+    if (this.mobileModeActive) {
+      const forgeBuyBtns = container.querySelectorAll('.forge-buy-btn');
+      forgeBuyBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const cardId = btn.getAttribute('data-id')!;
+          if (this.engine.purchaseForgeCard(cardId)) {
+            this.sound.playDraw();
+            if (this.renderer) {
+              this.renderer.hoveredForgeCardId = null;
+              this.hoveredForgeCardId = null;
+              this.renderer.syncForgeCards();
+            }
+            this.render();
+          }
+        });
       });
     }
   }
@@ -2596,8 +2693,10 @@ export class GameUI {
     this.shopCards.forEach((item, index) => {
       const canAfford = state.chips >= item.cost;
       const rarityClass = `shop-card-rarity-${item.rarity}`;
+      const paintClass = item.type === 'paint' ? 'paint-card' : '';
+      const moneyClass = item.type === 'money' ? 'money-card' : '';
       html += `
-        <div class="shop-card-item glass-panel ${rarityClass}">
+        <div class="shop-card-item glass-panel ${rarityClass} ${paintClass} ${moneyClass}">
           <div class="shop-card-meta">${item.type} · ${item.rarity}</div>
           <div class="card-title">${item.name}</div>
           <div class="card-desc">${formatDescription(item.desc, isPoints)}</div>
@@ -2646,8 +2745,12 @@ export class GameUI {
       }
     });
 
-    // Hide HTML items view container to rely on 3D view
-    container.classList.add('hidden');
+    // Hide HTML items view container to rely on 3D view unless in mobile mode
+    if (this.mobileModeActive) {
+      container.classList.remove('hidden');
+    } else {
+      container.classList.add('hidden');
+    }
     if (this.renderer) {
       this.renderer.syncShopItems();
     }
@@ -2666,21 +2769,36 @@ export class GameUI {
     
     Object.keys(BOARD_UPGRADES).forEach(key => {
       const upgrade = BOARD_UPGRADES[key];
-      const isOwned = playerWheel.upgrades.includes(key);
-      const canAfford = state.chips >= upgrade.cost;
+      let isOwned = playerWheel.upgrades.includes(key);
+      let cost = upgrade.cost;
+      let name = upgrade.name;
+      let desc = upgrade.description;
+
+      if (key.startsWith('level_')) {
+        const color = key.replace('level_', '') as SlotColor;
+        const currentLevel = state.colorLevels?.[color] || 1;
+        cost = 15 + (currentLevel - 1) * 5;
+        if (currentLevel >= 10) {
+          isOwned = true;
+        }
+        name = `${name} (Lvl ${currentLevel})`;
+        desc = `${desc} Currently: Lvl ${currentLevel}.`;
+      }
+
+      const canAfford = state.chips >= cost;
       
       html += `
         <div class="shop-card-item glass-panel">
-          <div class="card-title">${upgrade.name}</div>
-          <div class="card-desc">${formatDescription(upgrade.description, isPoints)}</div>
+          <div class="card-title">${name}</div>
+          <div class="card-desc">${formatDescription(desc, isPoints)}</div>
           ${isOwned ? `
-            <span class="upgrade-badge">PURCHASED</span>
+            <span class="upgrade-badge">${key.startsWith('level_') ? 'MAXED' : 'PURCHASED'}</span>
             <button class="btn primary-btn buy-upgrade-btn" style="opacity: 0.5;" disabled>
-              OWNED
+              ${key.startsWith('level_') ? 'MAXED' : 'OWNED'}
             </button>
           ` : `
             <button class="btn primary-btn buy-upgrade-btn animate-btn" data-id="${key}" ${!canAfford ? 'disabled' : ''}>
-              BUY: ${upgrade.cost} ⚡
+              BUY: ${cost} ⚡
             </button>
           `}
         </div>
@@ -2701,8 +2819,12 @@ export class GameUI {
       });
     });
 
-    // Hide HTML upgrades view container to rely on 3D view
-    container.classList.add('hidden');
+    // Hide HTML upgrades view container to rely on 3D view unless in mobile mode
+    if (this.mobileModeActive) {
+      container.classList.remove('hidden');
+    } else {
+      container.classList.add('hidden');
+    }
     if (this.renderer) {
       this.renderer.syncShopItems();
     }
@@ -3023,7 +3145,7 @@ export class GameUI {
       const nameInput = this.root.querySelector('#cust-wheel-name') as HTMLInputElement;
       const descInput = this.root.querySelector('#cust-wheel-desc') as HTMLInputElement;
       this.customWheelData.name = nameInput.value || 'Custom Destroyer';
-      this.customWheelData.description = descInput.value || 'A bespoke engine of risk and blood.';
+      this.customWheelData.description = descInput.value || 'A bespoke engine of risk and reward.';
 
       // Parse payouts
       this.customWheelData.payoutMultipliers.red = parseFloat((this.root.querySelector('#cust-payout-red') as HTMLInputElement).value) || 2.0;
@@ -3069,7 +3191,7 @@ export class GameUI {
 
     choicesContainer.innerHTML = `
       <button class="event-choice-btn" data-choice="1">
-        <span class="choice-tag">[Inject Syringe]</span> Lose 8 Blood, gain 25 Essence chips.
+        <span class="choice-tag">[Inject Syringe]</span> Lose 8 HP, gain 25 Essence chips.
       </button>
       <button class="event-choice-btn" data-choice="2">
         <span class="choice-tag">[Accept Magnet]</span> Add Lodestone Magnet card to your deck.
@@ -3087,8 +3209,12 @@ export class GameUI {
       });
     });
 
-    // Hide HTML choices list to rely on 3D tablets
-    choicesContainer.classList.add('hidden');
+    // Hide HTML choices list to rely on 3D tablets unless in mobile mode
+    if (this.mobileModeActive) {
+      choicesContainer.classList.remove('hidden');
+    } else {
+      choicesContainer.classList.add('hidden');
+    }
     if (this.renderer) {
       this.renderer.syncEventChoices();
     }
@@ -3101,10 +3227,59 @@ export class GameUI {
   private renderCombat() {
     const battle = this.engine.battleState;
     if (!battle) return;
-    // Update Enemy details (Scoreboard or HP bar) - Combined HUD on mobile
-    const isPointsMode = this.engine.runState.combatMode === 'points';
-    const enemyHud = this.root.querySelector('.enemy-hud') as HTMLElement;
     const state = this.engine.runState;
+    const isPointsMode = state.combatMode === 'points';
+    const enemyHud = this.root.querySelector('.enemy-hud') as HTMLElement;
+
+    // Render color levels HUD
+    const colorLevelsHud = this.root.querySelector('.color-levels-hud') as HTMLElement;
+    if (colorLevelsHud) {
+      const levels = state.colorLevels || { red: 1, black: 1, green: 1, gold: 1, purple: 1, cyan: 1, crimson: 1 };
+      const unlocks = state.colorUnlocks || { red_ability: false, black_ability: false, green_ability: false };
+      
+      const colorRows = [
+        { name: 'Red', color: '#ff3b30', lvl: levels.red, mult: this.engine.getScaledPayoutMultiplier('red', state.playerWheel.payoutMultipliers.red), ability: unlocks.red_ability ? '🔥 FEVER' : '🔒 LOCKED' },
+        { name: 'Black', color: '#888888', lvl: levels.black, mult: this.engine.getScaledPayoutMultiplier('black', state.playerWheel.payoutMultipliers.black), ability: unlocks.black_ability ? '❄️ GLACIER' : '🔒 LOCKED' },
+        { name: 'Green', color: '#34c759', lvl: levels.green, mult: this.engine.getScaledPayoutMultiplier('green', state.playerWheel.payoutMultipliers.green), ability: unlocks.green_ability ? '⚡ SYNAPSE' : '🔒 LOCKED' },
+        { name: 'Gold', color: '#ffcc00', lvl: levels.gold, mult: this.engine.getScaledPayoutMultiplier('gold', state.playerWheel.payoutMultipliers.gold || 4.0), ability: '✨ MIDAS' },
+        { name: 'Purple', color: '#af52de', lvl: levels.purple, mult: this.engine.getScaledPayoutMultiplier('purple', state.playerWheel.payoutMultipliers.purple || 4.0), ability: '🔮 CURSE' },
+        { name: 'Cyan', color: '#5ac8fa', lvl: levels.cyan, mult: this.engine.getScaledPayoutMultiplier('cyan', state.playerWheel.payoutMultipliers.cyan || 4.0), ability: '🔋 CHARGE' },
+        { name: 'Crimson', color: '#ff2d55', lvl: levels.crimson, mult: this.engine.getScaledPayoutMultiplier('crimson', state.playerWheel.payoutMultipliers.crimson || 6.0), ability: '🩸 SURGE' }
+      ];
+
+      const isLosing = (battle.playerScore || 0) < (battle.enemyScore || 0);
+
+      let hudHtml = `
+        <div style="font-weight: bold; color: var(--color-gold); font-family: var(--font-header); font-size: 1.1rem; margin-bottom: 6px; letter-spacing: 1px; border-bottom: 1px solid rgba(197, 159, 81, 0.25); padding-bottom: 4px; display: flex; justify-content: space-between;">
+          <span>COLOR LEVEL</span>
+          <span style="font-size: 0.8rem; opacity: 0.7;">MAX 10</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 5px; font-family: var(--font-mono); font-size: 0.7rem;">
+      `;
+
+      colorRows.forEach(row => {
+        const displayMult = row.name === 'Crimson' 
+          ? `${row.mult}x${isLosing ? ' (x2)' : ''}` 
+          : `${row.mult}x`;
+
+        hudHtml += `
+          <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 2px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${row.color}; box-shadow: 0 0 4px ${row.color}; border: 1px solid rgba(255,255,255,0.2);"></span>
+              <span style="font-weight: bold; color: #fff;">${row.name.toUpperCase()}</span>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span style="color: var(--color-gold);">Lvl ${row.lvl}</span>
+              <span style="opacity: 0.85; width: 45px; text-align: right;">${displayMult}</span>
+              <span style="font-size: 0.6rem; font-family: var(--font-header); color: ${row.ability.includes('LOCKED') ? '#888' : '#ffd54f'}; background: ${row.ability.includes('LOCKED') ? 'rgba(255,255,255,0.05)' : 'rgba(197, 159, 81, 0.15)'}; padding: 1px 4px; border-radius: 2px; border: 1px solid ${row.ability.includes('LOCKED') ? 'rgba(255,255,255,0.1)' : 'rgba(197, 159, 81, 0.3)'}; min-width: 50px; text-align: center;">${row.ability}</span>
+            </div>
+          </div>
+        `;
+      });
+
+      hudHtml += `</div>`;
+      colorLevelsHud.innerHTML = hudHtml;
+    }
 
     if (enemyHud) {
       if (this.mobileModeActive) {
@@ -3161,7 +3336,7 @@ export class GameUI {
               ` : `
                 <div class="mobile-hud-hp-bars" style="display: flex; flex-direction: column; gap: 4px; width: 100%;">
                   <div class="mobile-hp-bar-item" style="display: flex; align-items: center; gap: 8px;">
-                    <span class="hp-bar-lbl" style="font-family: var(--font-header); font-size: 0.85rem; width: 50px; text-align: left; color: #ecdec0;">BLOOD:</span>
+                    <span class="hp-bar-lbl" style="font-family: var(--font-header); font-size: 0.85rem; width: 50px; text-align: left; color: #ecdec0;">HP:</span>
                     <div class="bar-container player-hp-bar-container" style="flex: 1; height: 14px; position: relative;">
                       <div class="bar hp-bar" style="width: ${(state.hp / state.maxHp) * 100}%; height: 100%; background: var(--color-red);"></div>
                       <span class="bar-text" style="font-size: 9px; line-height: 14px;">${state.hp} / ${state.maxHp}</span>
@@ -3949,8 +4124,10 @@ export class GameUI {
     
     codexGrid.innerHTML = allCards.map(card => {
       const rarityClass = `codex-card-rarity-${card.rarity}`;
+      const paintClass = card.type === 'paint' ? 'paint-card' : '';
+      const moneyClass = card.type === 'money' ? 'money-card' : '';
       return `
-        <div class="codex-card ${rarityClass}">
+        <div class="codex-card ${rarityClass} ${paintClass} ${moneyClass}">
           <div class="codex-card-header">
             <span class="codex-card-name">${card.name}</span>
             <span class="codex-card-cost">${card.cost} ⚡</span>

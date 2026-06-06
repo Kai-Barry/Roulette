@@ -397,6 +397,30 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
     rarity: 'uncommon',
     effectId: 'WIND_TUNNEL'
   },
+  triple_threat: {
+    name: 'Triple Threat',
+    description: 'Spins 3 balls simultaneously on your wheel this turn.',
+    cost: 3,
+    type: 'chaos',
+    rarity: 'rare',
+    effectId: 'TRIPLE_THREAT'
+  },
+  peg_splitter: {
+    name: 'Peg Splitter',
+    description: 'When the ball hits a pin, it duplicates into 2 balls (max 6 active balls).',
+    cost: 4,
+    type: 'chaos',
+    rarity: 'legendary',
+    effectId: 'PEG_SPLITTER'
+  },
+  shotgun_blast: {
+    name: 'Shotgun Blast',
+    description: 'Spins 1 ball. After 1.5 seconds, it duplicates into a shotgun blast of 4 extra balls.',
+    cost: 3,
+    type: 'chaos',
+    rarity: 'rare',
+    effectId: 'SHOTGUN_BLAST'
+  },
 
   // Board Modifiers (25 cards)
   crimson_flood: {
@@ -577,6 +601,30 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
     rarity: 'common',
     effectId: 'COPPER_PLATE'
   },
+  red_sea: {
+    name: 'Red Sea',
+    description: 'Converts all Black slots into Red slots for the next spin.',
+    cost: 3,
+    type: 'board',
+    rarity: 'rare',
+    effectId: 'RED_SEA'
+  },
+  onyx_void: {
+    name: 'Onyx Void',
+    description: 'Converts all Red slots into Black slots for the next spin.',
+    cost: 3,
+    type: 'board',
+    rarity: 'rare',
+    effectId: 'ONYX_VOID'
+  },
+  emerald_dream: {
+    name: 'Emerald Dream',
+    description: 'Converts all Red and Black slots into Green slots for the next spin.',
+    cost: 5,
+    type: 'board',
+    rarity: 'legendary',
+    effectId: 'EMERALD_DREAM'
+  },
 
 
   // Utility / Risk Modifiers (25 cards)
@@ -728,6 +776,154 @@ export const CARD_DATABASE: Record<string, Omit<Card, 'id'>> = {
     type: 'utility',
     rarity: 'legendary',
     effectId: 'LUCKY_CHARM'
+  },
+  
+  // Paint Cards (12 cards)
+  paint_red: {
+    name: 'Red Paint',
+    description: 'Converts 5 random Black slots into Red slots for the round.',
+    cost: 2,
+    type: 'paint',
+    rarity: 'uncommon',
+    effectId: 'PAINT_RED'
+  },
+  paint_black: {
+    name: 'Black Paint',
+    description: 'Converts 5 random Red slots into Black slots for the round.',
+    cost: 2,
+    type: 'paint',
+    rarity: 'uncommon',
+    effectId: 'PAINT_BLACK'
+  },
+  paint_green: {
+    name: 'Green Coat',
+    description: 'Converts 3 random Red or Black slots into Green slots for the round.',
+    cost: 3,
+    type: 'paint',
+    rarity: 'uncommon',
+    effectId: 'PAINT_GREEN'
+  },
+  paint_gold: {
+    name: 'Gold Glaze',
+    description: 'Converts 2 random slots into Gold slots for the round.',
+    cost: 4,
+    type: 'paint',
+    rarity: 'rare',
+    effectId: 'PAINT_GOLD'
+  },
+  paint_purple: {
+    name: 'Purple Dye',
+    description: 'Converts 2 random slots into Purple slots for the round.',
+    cost: 4,
+    type: 'paint',
+    rarity: 'rare',
+    effectId: 'PAINT_PURPLE'
+  },
+  paint_cyan: {
+    name: 'Cyan Tint',
+    description: 'Converts 2 random slots into Cyan slots for the round.',
+    cost: 4,
+    type: 'paint',
+    rarity: 'rare',
+    effectId: 'PAINT_CYAN'
+  },
+  paint_crimson: {
+    name: 'Crimson Spray',
+    description: 'Converts 2 random slots into Crimson slots for the round.',
+    cost: 4,
+    type: 'paint',
+    rarity: 'rare',
+    effectId: 'PAINT_CRIMSON'
+  },
+  paint_complementary: {
+    name: 'Complementary Splash',
+    description: 'Converts all Black slots into Red slots for the round.',
+    cost: 5,
+    type: 'paint',
+    rarity: 'rare',
+    effectId: 'PAINT_COMPLEMENTARY'
+  },
+  paint_inverse: {
+    name: 'Inverse Splash',
+    description: 'Converts all Red slots into Black slots for the round.',
+    cost: 5,
+    type: 'paint',
+    rarity: 'rare',
+    effectId: 'PAINT_INVERSE'
+  },
+  paint_single_digit: {
+    name: 'Single Digit Splash',
+    description: 'Converts all single-digit slots (1-9) into Green slots for the round.',
+    cost: 4,
+    type: 'paint',
+    rarity: 'rare',
+    effectId: 'PAINT_SINGLE_DIGIT'
+  },
+  paint_prime: {
+    name: 'Prime Coat',
+    description: 'Converts all prime number slots on the wheel into Green slots for the round.',
+    cost: 5,
+    type: 'paint',
+    rarity: 'rare',
+    effectId: 'PAINT_PRIME'
+  },
+  paint_high_gild: {
+    name: 'High Roller Gild',
+    description: 'Converts all High slots (19-36) into Gold slots for the round.',
+    cost: 6,
+    type: 'paint',
+    rarity: 'legendary',
+    effectId: 'PAINT_HIGH_GILD'
+  },
+  
+  // Money Cards (6 cards)
+  money_essence_chip: {
+    name: 'Essence Chip',
+    description: 'Gain +4 action chips this turn. Exile.',
+    cost: 0,
+    type: 'money',
+    rarity: 'common',
+    effectId: 'ESSENCE_CHIP'
+  },
+  money_chip_maker: {
+    name: 'Chip Maker',
+    description: 'Add 3 temporary Essence Chips to your draw pile. Draw 1 card.',
+    cost: 1,
+    type: 'money',
+    rarity: 'common',
+    effectId: 'CHIP_MAKER'
+  },
+  money_sacrifice: {
+    name: 'High Stakes Sacrifice',
+    description: 'Gain +12 action chips, but sacrifices a random card in hand.',
+    cost: 1,
+    type: 'money',
+    rarity: 'uncommon',
+    effectId: 'HIGH_STAKES_SACRIFICE'
+  },
+  money_tax_refund: {
+    name: 'Tax Refund',
+    description: 'Gain +2 action chips for each Essence Chip card in your discard pile.',
+    cost: 2,
+    type: 'money',
+    rarity: 'uncommon',
+    effectId: 'TAX_REFUND'
+  },
+  money_venture: {
+    name: 'Capital Venture',
+    description: 'Add 5 temporary Essence Chips to your discard pile. Gain +25 shop chips at the end of the round if you win.',
+    cost: 2,
+    type: 'money',
+    rarity: 'rare',
+    effectId: 'CAPITAL_VENTURE'
+  },
+  money_heist: {
+    name: 'Golden Heist',
+    description: 'Add 2 temporary Essence Chips to your hand. When the ball lands on a Gold slot this turn, gain +30 shop chips.',
+    cost: 3,
+    type: 'money',
+    rarity: 'legendary',
+    effectId: 'GOLDEN_HEIST'
   }
 };
 
@@ -780,10 +976,6 @@ export function createStarterDeck(): Card[] {
 
 export function formatDescription(desc: string, isPointsMode: boolean): string {
   let formatted = desc;
-  
-  // Replace HP with Blood (applicable to both modes for HUD consistency)
-  formatted = formatted.replace(/\bHP\b/g, 'Blood');
-  formatted = formatted.replace(/\bhp\b/g, 'blood');
   
   if (isPointsMode) {
     // Enemy damage references
