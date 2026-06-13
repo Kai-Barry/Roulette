@@ -13,6 +13,9 @@ const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31];
 
 export function getSlotColor(num: number, wheel?: WheelConfig, boardMods?: BoardModifiers): SlotColor {
   if (boardMods) {
+    if (boardMods.customSlotColors && boardMods.customSlotColors[num] !== undefined) {
+      return boardMods.customSlotColors[num];
+    }
     if (boardMods.convertAllToGold) return 'gold';
     if (boardMods.convertAllToPurple) return 'purple';
     if (boardMods.convertAllToCyan) return 'cyan';

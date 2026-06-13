@@ -1,7 +1,7 @@
 export type GameState = 'MENU' | 'LOADOUT_STORE' | 'MAP' | 'COMBAT' | 'SHOP' | 'EVENT' | 'GAME_OVER' | 'VICTORY' | 'FORGE';
 
-export type SlotColor = 'red' | 'black' | 'green' | 'gold' | 'purple' | 'cyan' | 'crimson';
-export type BetColor = 'red' | 'black' | 'green' | 'gold' | 'purple' | 'cyan' | 'crimson';
+export type SlotColor = 'red' | 'black' | 'green' | 'gold' | 'purple' | 'cyan' | 'crimson' | 'blue' | 'pink' | 'brown' | 'orange' | 'yellow' | 'grey' | 'white';
+export type BetColor = 'red' | 'black' | 'green' | 'gold' | 'purple' | 'cyan' | 'crimson' | 'blue' | 'pink' | 'brown' | 'orange' | 'yellow' | 'grey' | 'white';
 export type WheelRarity = 'common' | 'uncommon' | 'rare' | 'legendary';
 
 export type CardType = 'physics' | 'board' | 'payout' | 'utility' | 'chaos' | 'paint' | 'money';
@@ -141,12 +141,12 @@ export interface RunState {
   forgeCards?: ForgeCard[];
   forgeRerollCount?: number;
   combatMode?: 'points' | 'damage';
-  colorLevels?: Record<SlotColor, number>;
+  colorLevels?: Partial<Record<SlotColor, number>>;
   colorUnlocks?: Record<string, boolean>;
 }
 
 export interface Bet {
-  type: 'red' | 'black' | 'green' | 'number' | 'odd' | 'even' | 'gold' | 'purple' | 'cyan' | 'crimson';
+  type: 'red' | 'black' | 'green' | 'number' | 'odd' | 'even' | 'gold' | 'purple' | 'cyan' | 'crimson' | 'blue' | 'pink' | 'brown' | 'orange' | 'yellow' | 'grey' | 'white';
   numberValue?: number;
   amount: number;
 }
@@ -169,10 +169,12 @@ export interface BattleState {
   maxRounds?: number;
   isSuddenDeath?: boolean;
   chipsPool: number; // Chips available to bet this turn
+  enemyChipsPool?: number; // Enemy chips pool
   hand: Card[];
   drawPile: Card[];
   discardPile: Card[];
   bets: Bet[];
+  backupBets?: Bet[];
   activePlayedCards?: Card[];
   drawsThisTurn: number;
   playerWheel: WheelConfig;
@@ -285,4 +287,5 @@ export interface BoardModifiers {
   convertAllToCyan?: boolean;
   convertAllToCrimson?: boolean;
   capitalVentureCount?: number;
+  customSlotColors?: Record<number, SlotColor>;
 }

@@ -14,6 +14,7 @@ export class GameUI {
   public currentBetAmount = 5;
   private selectedBetType: 'red' | 'black' | 'green' | 'number' = 'red';
   private selectedBetNumber = 0;
+  public activeBrush = 0;
 
   // Spin feedback state
   private spinMessage = '';
@@ -807,7 +808,10 @@ export class GameUI {
                   <button class="bet-val-btn active" data-val="1">1</button>
                   <button class="bet-val-btn" data-val="5">5</button>
                   <button class="bet-val-btn" data-val="10">10</button>
+                  <button class="bet-val-btn" data-val="25">25</button>
+                  <button class="bet-val-btn" data-val="100">100</button>
                   <button class="bet-val-btn" data-val="max">MAX</button>
+                  <input type="number" id="custom-bet-input" min="1" max="1000" value="1" style="width: 65px; background: rgba(0,0,0,0.6); border: 1.5px solid var(--color-gold); color: #fff; text-align: center; font-family: 'Courier Prime', monospace; font-size: 14px; border-radius: 4px; padding: 2px 0; margin-left: 8px;">
                 </div>
 
                 <!-- Colors & Category Bets -->
@@ -846,10 +850,12 @@ export class GameUI {
                 </div>
 
                 <!-- Combat Primary Buttons -->
-                <div class="combat-actions">
-                  <button id="clear-bets-btn" class="btn secondary-btn">CLEAR</button>
-                  <button id="spin-wheel-btn" class="btn primary-btn pulse-glow disabled">SPIN WHEEL</button>
-                  <button id="end-turn-btn" class="btn next-turn-btn hidden">END TURN</button>
+                <div class="combat-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                  <button id="clear-bets-btn" class="btn secondary-btn" style="flex: 1;">CLEAR</button>
+                  <button id="rebet-btn" class="btn secondary-btn" style="flex: 1;">REBET</button>
+                  <button id="sacrifice-btn" class="btn secondary-btn" style="flex: 1.5; border-color: #ff3b30; color: #ff3b30;">SACRIFICE</button>
+                  <button id="spin-wheel-btn" class="btn primary-btn pulse-glow disabled" style="flex: 2;">SPIN WHEEL</button>
+                  <button id="end-turn-btn" class="btn next-turn-btn hidden" style="flex: 2;">END TURN</button>
                 </div>
               </div>
             </div>
@@ -1115,6 +1121,8 @@ export class GameUI {
 
     // Betting selectors (Value buttons)
     const valBtns = this.root.querySelectorAll('.bet-val-btn');
+    const customBetInput = this.root.querySelector('#custom-bet-input') as HTMLInputElement;
+
     valBtns.forEach(btn => {
       btn.addEventListener('click', (e) => {
         valBtns.forEach(b => b.classList.remove('active'));
@@ -1127,24 +1135,50 @@ export class GameUI {
           this.currentBetAmount = parseInt(val);
         }
         this.sound.playDraw();
+        
+        if (customBetInput && val !== 'max') {
+          customBetInput.value = this.currentBetAmount.toString();
+        }
       });
     });
 
-    // Color betting buttons click
+    if (customBetInput) {
+      customBetInput.addEventListener('input', () => {
+        valBtns.forEach(b => b.classList.remove('active'));
+        const val = parseInt(customBetInput.value) || 1;
+        this.currentBetAmount = Math.max(1, val);
+      });
+    }
+
+    // Color betting buttons click & right-click
     const betBtns = this.root.querySelectorAll('.bet-btn');
     betBtns.forEach(btn => {
       btn.addEventListener('click', () => {
         const type = btn.getAttribute('data-type') as 'red' | 'black' | 'green' | 'odd' | 'even' | 'gold' | 'purple' | 'cyan' | 'crimson';
         this.placeEngineBet(type, this.currentBetAmount);
       });
+      btn.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const type = btn.getAttribute('data-type') as 'red' | 'black' | 'green' | 'odd' | 'even' | 'gold' | 'purple' | 'cyan' | 'crimson';
+        this.sound.playCardSwoosh();
+        this.engine.subtractBet(type, this.currentBetAmount);
+        this.render();
+      });
     });
 
-    // Grid numbers click
+    // Grid numbers click & right-click
     const numCells = this.root.querySelectorAll('.num-cell');
     numCells.forEach(cell => {
       cell.addEventListener('click', () => {
         const num = parseInt(cell.getAttribute('data-num')!);
         this.placeEngineBet('number', this.currentBetAmount, num);
+      });
+      cell.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const num = parseInt(cell.getAttribute('data-num')!);
+        this.sound.playCardSwoosh();
+        this.engine.subtractBet('number', this.currentBetAmount, num);
+        this.render();
       });
     });
 
@@ -1154,6 +1188,28 @@ export class GameUI {
       this.sound.playCardSwoosh();
       this.engine.clearBets();
       this.render();
+    });
+
+    // Rebet
+    const rebetBtn = this.root.querySelector('#rebet-btn');
+    rebetBtn?.addEventListener('click', () => {
+      if (this.engine.rebet()) {
+        this.sound.playDraw();
+        this.render();
+      } else {
+        this.sound.playRouletteClick(0.3);
+      }
+    });
+
+    // Sacrifice
+    const sacrificeBtn = this.root.querySelector('#sacrifice-btn');
+    sacrificeBtn?.addEventListener('click', () => {
+      if (this.engine.sacrificeForChips()) {
+        this.sound.playBell();
+        this.render();
+      } else {
+        this.sound.playRouletteClick(0.3);
+      }
     });
 
     // Spin wheel
@@ -1820,8 +1876,7 @@ export class GameUI {
 
     // 2. Decide enemy play using AI
     const playResult = this.engine.chooseEnemyPlay();
-    const enemyBetType = playResult.betType;
-    const enemyBetNumber = playResult.numberValue;
+    const enemyBets = playResult.bets;
     const enemyCard = playResult.card;
 
     // 3. Pause for 1.0 second to let the camera settle so the player sees the opponent
@@ -1830,7 +1885,7 @@ export class GameUI {
 
       // 4. Play opponent card and bet animation in 3D scene (duration = 3.5s)
       if (this.renderer) {
-        this.renderer.playOpponentActionAnimation(battle.enemy.intent, enemyBetType, enemyBetNumber, enemyCard || undefined);
+        this.renderer.playOpponentActionAnimation(battle.enemy.intent, enemyBets, enemyCard || undefined);
       }
 
       // 5. Wait for visual animation to complete (3.5s) + extra pause (1.5s) = 5.0 seconds
@@ -1844,9 +1899,8 @@ export class GameUI {
         setTimeout(() => {
           if (!this.engine.battleState) return;
 
-          // 8. Set enemy's bet in engine state
-          const amount = Math.max(1, battle.enemy.intent.value);
-          battle.bets = [{ type: enemyBetType as any, amount, numberValue: enemyBetNumber }];
+          // 8. Set enemy's bets in engine state
+          battle.bets = enemyBets;
           this.render(); // update chips stacks
 
           // 9. Spin wheel for the enemy
@@ -2158,11 +2212,17 @@ export class GameUI {
   render() {
     const state = this.engine.runState;
 
-    // Update body state class for mobile layout selectors (preserving debug-ui-active)
+    // Update body state class for mobile layout selectors (preserving debug-ui-active and sandbox-active)
     const wasDebug = document.body.classList.contains('debug-ui-active');
+    const wasSandbox = document.body.classList.contains('sandbox-active');
     document.body.className = this.mobileModeActive ? 'mobile-mode' : '';
     if (wasDebug) {
       document.body.classList.add('debug-ui-active');
+    }
+    if (wasSandbox && state.gameState === 'COMBAT') {
+      document.body.classList.add('sandbox-active');
+    } else {
+      this.activeBrush = 0;
     }
     document.body.classList.add(`state-${state.gameState.toLowerCase()}`);
 
@@ -3247,7 +3307,7 @@ export class GameUI {
         { name: 'Crimson', color: '#ff2d55', lvl: levels.crimson, mult: this.engine.getScaledPayoutMultiplier('crimson', state.playerWheel.payoutMultipliers.crimson || 6.0), ability: '🩸 SURGE' }
       ];
 
-      const isLosing = (battle.playerScore || 0) < (battle.enemyScore || 0);
+      const isLosing = (battle.chipsPool) < (battle.enemyChipsPool || 0);
 
       let hudHtml = `
         <div style="font-weight: bold; color: var(--color-gold); font-family: var(--font-header); font-size: 1.1rem; margin-bottom: 6px; letter-spacing: 1px; border-bottom: 1px solid rgba(197, 159, 81, 0.25); padding-bottom: 4px; display: flex; justify-content: space-between;">
@@ -3321,12 +3381,12 @@ export class GameUI {
                 <div class="mobile-hud-scores" style="display: flex; align-items: center; justify-content: space-between; width: 100%; font-family: var(--font-header);">
                   <div class="mobile-score-box" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
                     <span class="score-lbl" style="font-size: 0.75rem; opacity: 0.7;">PLAYER</span>
-                    <span class="score-val" style="font-size: 1.5rem; font-weight: bold; color: var(--color-gold);">${battle.playerScore || 0}</span>
+                    <span class="score-val" style="font-size: 1.5rem; font-weight: bold; color: var(--color-gold);">${battle.chipsPool}</span>
                   </div>
                   <div class="mobile-score-vs" style="font-size: 0.9rem; opacity: 0.5; padding: 0 10px;">VS</div>
                   <div class="mobile-score-box" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
                     <span class="score-lbl" style="font-size: 0.75rem; opacity: 0.7;">ENEMY</span>
-                    <span class="score-val" style="font-size: 1.5rem; font-weight: bold; color: var(--color-red);">${battle.enemyScore || 0}</span>
+                    <span class="score-val" style="font-size: 1.5rem; font-weight: bold; color: var(--color-red);">${battle.enemyChipsPool || 0}</span>
                   </div>
                   <div class="mobile-score-round" style="display: flex; flex-direction: column; align-items: flex-end; padding-left: 10px; border-left: 1px solid rgba(255,255,255,0.15); margin-left: 10px; font-size: 0.95rem;">
                     <span>RD ${battle.turn}/${battle.maxRounds || 3}</span>
@@ -3385,12 +3445,12 @@ export class GameUI {
               <div class="scoreboard-scores">
                 <div class="score-box player-score-box">
                   <span class="score-label">PLAYER</span>
-                  <span class="score-value">${battle.playerScore || 0}</span>
+                  <span class="score-value">${battle.chipsPool}</span>
                 </div>
                 <div class="score-box vs-box">VS</div>
                 <div class="score-box enemy-score-box">
                   <span class="score-label">ENEMY</span>
-                  <span class="score-value">${battle.enemyScore || 0}</span>
+                  <span class="score-value">${battle.enemyChipsPool || 0}</span>
                 </div>
               </div>
               ${battle.curse ? `
@@ -3520,6 +3580,13 @@ export class GameUI {
 
         cell.addEventListener('click', () => {
           this.placeEngineBet('number', this.currentBetAmount, num);
+        });
+
+        cell.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          this.sound.playCardSwoosh();
+          this.engine.subtractBet('number', this.currentBetAmount, num);
+          this.render();
         });
 
         // Interactive hover information panel update
@@ -3661,6 +3728,26 @@ export class GameUI {
     const clearBtn = this.root.querySelector('#clear-bets-btn') as HTMLButtonElement;
     if (clearBtn) {
       clearBtn.disabled = battle.bets.length === 0 || this.isSpinning;
+    }
+
+    // Rebet Button availability
+    const rebetBtn = this.root.querySelector('#rebet-btn') as HTMLButtonElement;
+    if (rebetBtn) {
+      const hasBackupBets = battle.backupBets && battle.backupBets.length > 0;
+      rebetBtn.disabled = !hasBackupBets || battle.bets.length > 0 || this.isSpinning;
+    }
+
+    // Sacrifice Button text and availability
+    const sacrificeBtn = this.root.querySelector('#sacrifice-btn') as HTMLButtonElement;
+    if (sacrificeBtn) {
+      const isPointsMode = state.combatMode === 'points';
+      if (isPointsMode) {
+        sacrificeBtn.innerText = 'SACRIFICE (10 pts -> 5 ⚡)';
+        sacrificeBtn.disabled = (battle.playerScore || 0) < 10 || this.isSpinning;
+      } else {
+        sacrificeBtn.innerText = 'SACRIFICE (5 HP -> 5 ⚡)';
+        sacrificeBtn.disabled = state.hp <= 5 || this.isSpinning;
+      }
     }
 
     // End Turn display

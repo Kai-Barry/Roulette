@@ -809,7 +809,7 @@ body, html {
   display: none !important;
 }
 
-body.debug-ui-active .combat-right {
+body.debug-ui-active .combat-right, body.sandbox-active .combat-right {
   display: block !important;
 }
 
@@ -965,6 +965,13 @@ body.debug-ui-active .combat-right {
   text-shadow: 0 0 4px rgba(255, 0, 127, 0.8);
   animation: crimson-pulse 2s ease-in-out infinite;
 }
+.num-blue { background: #1e88e5; color: #fff; }
+.num-pink { background: #e91e63; color: #fff; }
+.num-brown { background: #795548; color: #fff; }
+.num-orange { background: #ff9800; color: #000; }
+.num-yellow { background: #ffeb3b; color: #000; }
+.num-grey { background: #9e9e9e; color: #fff; }
+.num-white { background: #ffffff; color: #000; }
 @keyframes crimson-pulse {
   0%, 100% { box-shadow: inset 0 0 6px rgba(255, 0, 127, 0.5); }
   50% { box-shadow: inset 0 0 12px rgba(255, 0, 127, 0.9), 0 0 8px rgba(255, 0, 127, 0.4); }
@@ -1218,6 +1225,176 @@ body.debug-ui-active .combat-right {
 }
 #dev-tools-panel::-webkit-scrollbar-thumb {
   background: #664400;
+  border-radius: 2px;
+}
+
+/* --- SANDBOX PANEL --- */
+#sandbox-panel {
+  position: absolute;
+  top: 75px;
+  right: 15px;
+  width: 310px;
+  z-index: 105;
+  padding: 16px;
+  background: rgba(10, 12, 18, 0.95);
+  border: 2px solid #00bcd4;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.85), 0 0 15px rgba(0, 188, 212, 0.25);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+#sandbox-panel.hidden {
+  display: none !important;
+}
+
+.sandbox-header {
+  font-size: 14px;
+  font-weight: bold;
+  text-align: center;
+  color: #00bcd4;
+  border-bottom: 1px solid rgba(0, 188, 212, 0.4);
+  padding-bottom: 6px;
+  text-shadow: 0 0 5px rgba(0, 188, 212, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.sandbox-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 4px;
+}
+
+.sandbox-tab-btn {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #aaa;
+  font-size: 10px;
+  padding: 4px 0;
+  cursor: pointer;
+  border-radius: 3px;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.sandbox-tab-btn:hover {
+  background: rgba(0, 188, 212, 0.1);
+  color: #fff;
+}
+
+.sandbox-tab-btn.active {
+  background: rgba(0, 188, 212, 0.25);
+  border-color: #00bcd4;
+  color: #fff;
+  font-weight: bold;
+}
+
+.sandbox-tab-content {
+  display: none;
+}
+
+.sandbox-tab-content.active {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sandbox-btn-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.sandbox-btn-grid .btn {
+  font-size: 9px;
+  padding: 6px;
+  background: #141722;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #c5cbe3;
+}
+
+.sandbox-btn-grid .btn:hover {
+  background: #1f2537;
+  border-color: #00bcd4;
+  color: #fff;
+  box-shadow: 0 0 8px rgba(0, 188, 212, 0.2);
+}
+
+.paint-brushes-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.paint-btn {
+  font-size: 9px;
+  font-weight: bold;
+  padding: 8px 4px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+  text-shadow: 1px 1px 2px #000;
+  color: #fff;
+  transition: all 0.15s ease;
+}
+
+.paint-btn:hover {
+  transform: scale(1.03);
+}
+
+.paint-btn.active {
+  border-color: #fff;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.8), inset 0 0 5px rgba(0, 0, 0, 0.5);
+  transform: scale(1.05);
+}
+
+.paint-btn-none {
+  background: #2a2a2a;
+  border-color: #444;
+}
+
+.paint-btn-red {
+  background: #c62828;
+}
+
+.paint-btn-black {
+  background: #151515;
+}
+
+.paint-btn-green {
+  background: #2e7d32;
+}
+
+.paint-btn-gold {
+  background: linear-gradient(135deg, #ffd700, #b8860b);
+}
+
+.paint-btn-purple {
+  background: linear-gradient(135deg, #8e24aa, #4a148c);
+}
+
+.paint-btn-cyan {
+  background: linear-gradient(135deg, #00acc1, #006064);
+}
+
+.paint-btn-crimson {
+  background: linear-gradient(135deg, #c2185b, #5c0029);
+}
+
+#sandbox-panel::-webkit-scrollbar {
+  width: 4px;
+}
+#sandbox-panel::-webkit-scrollbar-thumb {
+  background: #00838f;
   border-radius: 2px;
 }
 

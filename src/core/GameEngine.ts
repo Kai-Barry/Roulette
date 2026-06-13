@@ -226,6 +226,7 @@ export class GameEngine {
       convertNumbersToCyan: [],
       convertNumbersToCrimson: [],
       capitalVentureCount: 0,
+      customSlotColors: {},
       payoutMultipliers: {
         red: this.getScaledPayoutMultiplier('red', playerWheel.payoutMultipliers.red),
         black: this.getScaledPayoutMultiplier('black', playerWheel.payoutMultipliers.black),
@@ -293,11 +294,12 @@ export class GameEngine {
       encounterType: type,
       curse,
       turn: 1,
-      playerScore: 0,
-      enemyScore: 0,
+      playerScore: curse?.id === 'greed' ? 15 : 30,
+      enemyScore: 30,
       isSuddenDeath: false,
       maxRounds: type === 'elite' ? 5 : type === 'boss' ? 8 : 3,
-      chipsPool: curse?.id === 'greed' ? 5 : 10, // Starting chips for combat turn 1
+      chipsPool: curse?.id === 'greed' ? 15 : 30, // Starting chips for the whole combat
+      enemyChipsPool: 30,
       hand: [],
       drawPile,
       discardPile: [],
@@ -452,6 +454,69 @@ export class GameEngine {
     this.battleState.chipsPool += totalRefund;
     this.battleState.bets = [];
     this.updatePrediction();
+  }
+
+  subtractBet(type: 'red' | 'black' | 'green' | 'number' | 'odd' | 'even' | 'gold' | 'purple' | 'cyan' | 'crimson', amount: number, numberValue?: number) {
+    if (!this.battleState) return false;
+    if (amount <= 0) return false;
+    const existingIndex = this.battleState.bets.findIndex(b => 
+      b.type === type && (type !== 'number' || b.numberValue === numberValue)
+    );
+    if (existingIndex === -1) return false;
+    
+    const existing = this.battleState.bets[existingIndex];
+    const deductAmount = Math.min(amount, existing.amount);
+    
+    existing.amount -= deductAmount;
+    this.battleState.chipsPool += deductAmount;
+    
+    if (existing.amount <= 0) {
+      this.battleState.bets.splice(existingIndex, 1);
+    }
+    
+    this.updatePrediction();
+    return true;
+  }
+
+  rebet(): boolean {
+    if (!this.battleState) return false;
+    const backup = (this.battleState as any).lastPlayerBetsBackup as any[];
+    if (!backup || backup.length === 0) return false;
+    
+    // Calculate total cost
+    const totalCost = backup.reduce((sum, b) => sum + b.amount, 0);
+    if (this.battleState.chipsPool < totalCost) return false;
+    
+    // Clear any current bets
+    this.clearBets();
+    
+    // Apply backup bets
+    backup.forEach(b => {
+      this.placeBet(b.type, b.amount, b.numberValue);
+    });
+    
+    return true;
+  }
+
+  sacrificeForChips(): boolean {
+    if (!this.battleState) return false;
+    const isPointsMode = this.runState.combatMode === 'points';
+    if (isPointsMode) {
+      const pScore = this.battleState.playerScore || 0;
+      if (pScore >= 10) {
+        this.battleState.playerScore = pScore - 10;
+        this.battleState.chipsPool += 5;
+        return true;
+      }
+    } else {
+      const hp = this.runState.hp;
+      if (hp > 5) {
+        this.runState.hp = hp - 5;
+        this.battleState.chipsPool += 5;
+        return true;
+      }
+    }
+    return false;
   }
 
   // Collects all winning numbers based on current bets and wheel state
@@ -660,7 +725,7 @@ export class GameEngine {
             const goldChips = 15 + (goldLvl - 1) * 5;
             const goldPts = 15 + (goldLvl - 1) * 5;
             this.runState.chips += goldChips;
-            this.battleState.playerScore = (this.battleState.playerScore || 0) + goldPts;
+            this.battleState.chipsPool += goldPts;
             desc = `GOLD — Transformed slots to Gold, gained +${goldPts} PTS and +${goldChips} Shop Chips!`;
             if (boardModifiers && (boardModifiers as any).goldenHeistActive) {
               this.runState.chips += 30;
@@ -671,7 +736,7 @@ export class GameEngine {
             const purpleLvl = this.getColorLevel('purple');
             const purplePts = 20 + (purpleLvl - 1) * 5;
             const purpleStun = 1 + Math.floor((purpleLvl - 1) / 2);
-            this.battleState.playerScore = (this.battleState.playerScore || 0) + purplePts;
+            this.battleState.chipsPool += purplePts;
             boardModifiers.enemyNextStun = true;
             if (purpleStun > 1) {
               boardModifiers.enemyStunTurns = (boardModifiers.enemyStunTurns || 0) + (purpleStun - 1);
@@ -682,7 +747,7 @@ export class GameEngine {
             const cyanLvl = this.getColorLevel('cyan');
             const cyanPts = 10 + (cyanLvl - 1) * 3;
             const cyanCards = 2 + (cyanLvl - 1);
-            this.battleState.playerScore = (this.battleState.playerScore || 0) + cyanPts;
+            this.battleState.chipsPool += cyanPts;
             if (this.battleState.turnStartBackup) {
               this.battleState.chipsPool = Math.max(this.battleState.chipsPool, this.battleState.turnStartBackup.chipsPool);
             }
@@ -694,13 +759,13 @@ export class GameEngine {
           case 'crimson_active':
             const crimActLvl = this.getColorLevel('crimson');
             const crimActPts = 15 + (crimActLvl - 1) * 5;
-            this.battleState.playerScore = (this.battleState.playerScore || 0) + crimActPts;
+            this.battleState.chipsPool += crimActPts;
             desc = `CRIMSON — Currently losing! Gained +${crimActPts} PTS and 12x payout multiplier!`;
             break;
           case 'crimson_inactive':
             const crimInactLvl = this.getColorLevel('crimson');
             const crimInactPts = 5 + (crimInactLvl - 1) * 2;
-            this.battleState.playerScore = (this.battleState.playerScore || 0) + crimInactPts;
+            this.battleState.chipsPool += crimInactPts;
             desc = `CRIMSON — Currently winning/tied. Gained +${crimInactPts} PTS and 6x payout multiplier`;
             break;
         }
@@ -736,7 +801,7 @@ export class GameEngine {
       if (boardModifiers.dangerZones && boardModifiers.dangerZones[winningNum] !== undefined) {
         const dangerDmg = boardModifiers.dangerZones[winningNum];
         if (isPointsMode) {
-          this.battleState.playerScore = (this.battleState.playerScore || 0) + dangerDmg;
+          this.battleState.chipsPool += dangerDmg;
         } else {
           this.battleState.enemy.hp = Math.max(0, this.battleState.enemy.hp - dangerDmg);
         }
@@ -748,6 +813,9 @@ export class GameEngine {
       // Add to total damage dealt
       totalDamageDealt += damageDealt;
 
+      // Add payout back to the player's chip pool
+      this.battleState.chipsPool += damageDealt;
+
       // Apply Stun Strike check
       const hasStunStrike = this.battleState.activePlayedCards?.some(c => c.effectId === 'STUN_STRIKE');
       if (hasStunStrike && damageDealt >= 5) {
@@ -756,9 +824,7 @@ export class GameEngine {
     }
 
     // Apply damage or points to enemy/player
-    if (isPointsMode) {
-      this.battleState.playerScore = (this.battleState.playerScore || 0) + totalDamageDealt;
-    } else {
+    if (!isPointsMode) {
       this.battleState.enemy.hp = Math.max(0, this.battleState.enemy.hp - totalDamageDealt);
     }
 
@@ -802,12 +868,11 @@ export class GameEngine {
           boardModifiers.redStreakCount = 0;
           
           if (boardModifiers.blackStreakCount >= 3) {
-            if (this.battleState.enemyScore !== undefined) {
-              const blackLvl = this.getColorLevel('black');
-              const drainAmount = 10 + (blackLvl - 1) * 3;
-              this.battleState.enemyScore = Math.max(0, this.battleState.enemyScore - drainAmount);
-              slotEffectDescs.push(`GLACIER SHIELD! Drained ${drainAmount} PTS from opponent's score!`);
-            }
+            const enemyPool = this.battleState.enemyChipsPool !== undefined ? this.battleState.enemyChipsPool : (this.battleState.enemyScore || 30);
+            const blackLvl = this.getColorLevel('black');
+            const drainAmount = 10 + (blackLvl - 1) * 3;
+            this.battleState.enemyChipsPool = Math.max(0, enemyPool - drainAmount);
+            slotEffectDescs.push(`GLACIER SHIELD! Drained ${drainAmount} PTS from opponent's score!`);
           }
         } else {
           boardModifiers.redStreakCount = 0;
@@ -839,6 +904,9 @@ export class GameEngine {
       slotEffect: slotEffectDescs.join(', ') || undefined,
       allOutcomes: outcomes
     };
+
+    // Back up current bets for Rebet
+    (this.battleState as any).lastPlayerBetsBackup = this.battleState.bets.map(b => ({ ...b }));
 
     // Discard played bets (they are consumed/gone)
     this.battleState.bets = [];
@@ -1064,23 +1132,31 @@ export class GameEngine {
     let playerDamageTaken = 0;
     const isPointsMode = this.runState.combatMode === 'points';
 
-    if (isWin) {
-      if (intent.type === 'attack') {
-        playerDamageTaken = intent.value;
-        if (isPointsMode) {
-          this.battleState.enemyScore = (this.battleState.enemyScore || 0) + playerDamageTaken;
+    if (isPointsMode) {
+      if (isWin) {
+        if (intent.type === 'attack') {
+          playerDamageTaken = intent.value;
+          this.battleState.enemyChipsPool = (this.battleState.enemyChipsPool || 0) + playerDamageTaken + betPayout;
+        } else if (intent.type === 'steal_chips') {
+          const stolen = Math.min(this.battleState.chipsPool, intent.value);
+          this.battleState.chipsPool = Math.max(0, this.battleState.chipsPool - stolen);
+          playerDamageTaken = stolen;
+          this.battleState.enemyChipsPool = (this.battleState.enemyChipsPool || 0) + stolen + betPayout;
         } else {
-          this.runState.hp = Math.max(0, this.runState.hp - playerDamageTaken);
+          this.battleState.enemyChipsPool = (this.battleState.enemyChipsPool || 0) + betPayout;
         }
-      } else if (intent.type === 'steal_chips') {
-        this.battleState.chipsPool = Math.max(0, this.battleState.chipsPool - intent.value);
-      } else if (intent.type === 'physics_debuff') {
-        this.battleState.physicsModifiers.friction *= 2.0;
       }
-    }
-
-    if (isPointsMode && isWin) {
-      this.battleState.enemyScore = (this.battleState.enemyScore || 0) + betPayout;
+    } else {
+      if (isWin) {
+        if (intent.type === 'attack') {
+          playerDamageTaken = intent.value;
+          this.runState.hp = Math.max(0, this.runState.hp - playerDamageTaken);
+        } else if (intent.type === 'steal_chips') {
+          this.battleState.chipsPool = Math.max(0, this.battleState.chipsPool - intent.value);
+        } else if (intent.type === 'physics_debuff') {
+          this.battleState.physicsModifiers.friction *= 2.0;
+        }
+      }
     }
 
     const enemyWinningNums = this.enemyPhysics.getWinningNumbers();
@@ -1253,11 +1329,8 @@ export class GameEngine {
       chipsGained -= 2;
       (this.battleState.boardModifiers as any).predictiveSightPlusActive = false; // Reset penalty flag
     }
-    if (this.battleState.curse?.id === 'greed') {
-      this.battleState.chipsPool = 5;
-    } else {
-      this.battleState.chipsPool = 10;
-    }
+    // Do NOT refill chipsPool. Keep the current chipsPool!
+    this.battleState.chipsPool = this.battleState.chipsPool || 0;
     this.battleState.phase = 'betting';
     (this.battleState as any).activeWheelOwner = 'player';
     this.battleState.drawsThisTurn = 0;
@@ -2318,8 +2391,8 @@ export class GameEngine {
     return { hand, allPlays };
   }
 
-  chooseEnemyPlay(): { betType: string; card: Card | null; numberValue?: number } {
-    if (!this.battleState) return { betType: 'red', card: null };
+  chooseEnemyPlay(): { bets: Bet[]; card: Card | null; betType: string; numberValue?: number } {
+    if (!this.battleState) return { bets: [{ type: 'red', amount: 1 }], card: null, betType: 'red' };
     const enemy = this.battleState.enemy;
     const difficulty = enemy.difficulty !== undefined ? enemy.difficulty : 0.5;
 
@@ -2352,6 +2425,7 @@ export class GameEngine {
       convertNumbersToCyan: [],
       convertNumbersToCrimson: [],
       capitalVentureCount: 0,
+      customSlotColors: {},
       payoutMultipliers: {
         red: this.battleState.enemyWheel.payoutMultipliers.red,
         black: this.battleState.enemyWheel.payoutMultipliers.black,
@@ -2398,10 +2472,118 @@ export class GameEngine {
       enemy.activeCard = null;
     }
 
+    // Now, choose multiple bets based on risk tolerance and current board/physics modifiers (which have cards applied)
+    const activeWheel = this.battleState.enemyWheel;
+    const boardMods = this.battleState.boardModifiers;
+    const isPointsMode = this.runState.combatMode === 'points';
+    
+    let riskTolerance = 0.1;
+    const pScore = this.battleState.playerScore || 0;
+    const eScore = this.battleState.enemyScore || 0;
+    const roundsPlayed = this.battleState.turn;
+    const maxRounds = this.battleState.maxRounds || 3;
+    
+    if (isPointsMode) {
+      if (eScore < pScore) {
+        riskTolerance = Math.min(1.0, 0.1 + (pScore - eScore) * 0.08);
+      }
+      if (roundsPlayed >= maxRounds && eScore < pScore) {
+        riskTolerance = 1.0;
+      }
+    }
+
+    const baseBets = ['red', 'black', 'green', 'odd', 'even'];
+    const hasColor = (c: SlotColor) => activeWheel.numbers.some(n => getSlotColor(n, activeWheel, boardMods) === c);
+    if (hasColor('gold')) baseBets.push('gold');
+    if (hasColor('purple')) baseBets.push('purple');
+    if (hasColor('cyan')) baseBets.push('cyan');
+    if (hasColor('crimson')) baseBets.push('crimson');
+
+    let predNumbers: number[] = [];
+    if (this.battleState.physicsModifiers.predictionSize > 0) {
+      const winningNumbers = this.getWinningNumbers(activeWheel);
+      predNumbers = this.runPredictionDryRun(activeWheel, winningNumbers);
+    }
+
+    const possibleBets: Array<{ type: Bet['type']; numberValue?: number; ev: number; score: number }> = [];
+
+    baseBets.forEach(betType => {
+      const ev = this.calculateBetEV(betType, undefined, activeWheel, predNumbers, boardMods);
+      let risk = 0.1;
+      if (betType === 'green') risk = 0.8;
+      else if (['gold', 'purple', 'cyan', 'crimson'].includes(betType)) risk = 0.5;
+      const score = ev * (1.0 - Math.abs(risk - riskTolerance));
+      possibleBets.push({ type: betType as any, ev, score });
+    });
+
+    predNumbers.forEach(num => {
+      const ev = this.calculateBetEV('number', num, activeWheel, predNumbers, boardMods);
+      const score = ev * (1.0 - Math.abs(1.0 - riskTolerance));
+      possibleBets.push({ type: 'number', numberValue: num, ev, score });
+    });
+
+    possibleBets.sort((a, b) => b.score - a.score);
+
+    const selectedBetsList: typeof possibleBets = [];
+    const seenTypes = new Set<string>();
+
+    for (const b of possibleBets) {
+      if (b.score <= 0 && selectedBetsList.length > 0) continue;
+      const key = b.type === 'number' ? `number_${b.numberValue}` : b.type;
+      if (seenTypes.has(key)) continue;
+
+      if (b.type === 'red' && seenTypes.has('black')) continue;
+      if (b.type === 'black' && seenTypes.has('red')) continue;
+      if (b.type === 'odd' && seenTypes.has('even')) continue;
+      if (b.type === 'even' && seenTypes.has('odd')) continue;
+
+      seenTypes.add(key);
+      selectedBetsList.push(b);
+      if (selectedBetsList.length >= 3) break;
+    }
+
+    if (selectedBetsList.length === 0 && possibleBets.length > 0) {
+      selectedBetsList.push(possibleBets[0]);
+    }
+
+    const currentEnemyChips = this.battleState.enemyChipsPool !== undefined ? this.battleState.enemyChipsPool : Infinity;
+    const totalBudget = Math.max(0, Math.min(currentEnemyChips, enemy.intent.value));
+    const finalBets: Bet[] = [];
+    let remainingBudget = totalBudget;
+    const maxBets = Math.min(3, selectedBetsList.length, totalBudget);
+
+    for (let i = 0; i < maxBets; i++) {
+      let amount = 0;
+      if (i === maxBets - 1) {
+        amount = remainingBudget;
+      } else {
+        const ratio = maxBets === 3 ? (i === 0 ? 0.5 : 0.3) : 0.65;
+        amount = Math.max(1, Math.round(totalBudget * ratio));
+        const remainingSlots = maxBets - 1 - i;
+        if (amount > remainingBudget - remainingSlots) {
+          amount = remainingBudget - remainingSlots;
+        }
+      }
+      
+      if (amount > 0) {
+        finalBets.push({
+          type: selectedBetsList[i].type,
+          amount: amount,
+          numberValue: selectedBetsList[i].numberValue
+        });
+        remainingBudget -= amount;
+      }
+    }
+
+    if (finalBets.length === 0 && totalBudget > 0) {
+      finalBets.push({ type: 'red', amount: totalBudget });
+    }
+
     return {
-      betType: selectedPlay.betType,
+      bets: finalBets,
       card: selectedPlay.card,
-      numberValue: selectedPlay.numberValue
+      betType: finalBets[0].type,
+      numberValue: finalBets[0].numberValue
     };
   }
 

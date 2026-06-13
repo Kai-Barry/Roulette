@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GameEngine } from '../core/GameEngine';
 import { WheelVisual, CardVisual, EnemyVisual, ForgeCardVisual, ShopItemVisual, EventChoiceVisual } from './WheelVisual';
 import { PS1Shader } from './PS1Shader';
-import { Card, WheelConfig, BoardUpgrade, BoardModifiers, Curse, SlotColor } from '../core/Types';
+import { Card, WheelConfig, BoardUpgrade, BoardModifiers, Curse, SlotColor, Bet } from '../core/Types';
 import { getSlotColor } from '../physics/RoulettePhysics';
 import { SoundManager } from '../ui/SoundManager';
 import { BOARD_UPGRADES } from '../core/WheelUpgrades';
@@ -171,6 +171,28 @@ export class RenderManager {
   draggedDenomMesh: THREE.Mesh | null = null;
   dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.02);
   activeHoveredCell: { type: string; numberValue?: number } | null = null;
+
+  // 3D Slider & Coins properties
+  sliderHandle!: THREE.Mesh;
+  displayPanelMesh!: THREE.Mesh;
+  displayPanelTex!: THREE.CanvasTexture;
+  displayPanelCanvas!: HTMLCanvasElement;
+  clearCoin!: THREE.Mesh;
+  rebetCoin!: THREE.Mesh;
+  doubleCoin!: THREE.Mesh;
+  sacrificeCoin!: THREE.Mesh;
+  activeBrush = 1;
+  isDraggingSlider = false;
+  isPainting = false;
+  paintMode: 'add' | 'subtract' | null = null;
+  lastHoveredCellPaint: { type: string; numberValue?: number } | null = null;
+  brushIndicatorMesh: THREE.Mesh | null = null;
+  brushIndicatorTextSprite: THREE.Sprite | null = null;
+
+  clearCoinShakeTime = 0;
+  rebetCoinShakeTime = 0;
+  doubleCoinShakeTime = 0;
+  sacrificeCoinShakeTime = 0;
 
   // Resolution parameters
   readonly RENDER_WIDTH = 1920;
@@ -634,7 +656,155 @@ export class RenderManager {
     this.labelsMesh.position.set(0.53, 0.006, 0.90);
     this.scene.add(this.labelsMesh);
 
-    this.initBook();
+    // --- Tactile 3D Betting System Initialization ---
+    // 1. Slider Base (wooden rectangle on felt)
+    const sliderBaseGeo = new THREE.BoxGeometry(0.38, 0.003, 0.05);
+    const sliderBaseMat = new THREE.MeshPhongMaterial({ color: 0x2b1b14, shininess: 20 });
+    const sliderBase = new THREE.Mesh(sliderBaseGeo, sliderBaseMat);
+    sliderBase.position.set(0.10, 0.005, 0.90);
+    sliderBase.receiveShadow = true;
+    sliderBase.castShadow = true;
+    this.scene.add(sliderBase);
+
+    // 2. Slider Metal Track Line
+    const trackGeo = new THREE.BoxGeometry(0.32, 0.001, 0.005);
+    const trackMat = new THREE.MeshPhongMaterial({ color: 0xc59f51, shininess: 80 });
+    const sliderTrack = new THREE.Mesh(trackGeo, trackMat);
+    sliderTrack.position.set(0, 0.002, 0); // relative to base
+    sliderTrack.userData = { isSliderTrack: true };
+    sliderBase.add(sliderTrack);
+
+    // 3. Slider Handle
+    const handleGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.012, 12);
+    const handleMat = new THREE.MeshPhongMaterial({ color: 0xc59f51, shininess: 90 });
+    this.sliderHandle = new THREE.Mesh(handleGeo, handleMat);
+    this.sliderHandle.castShadow = true;
+    this.sliderHandle.receiveShadow = true;
+    this.sliderHandle.userData = { isSliderHandle: true };
+    this.sliderHandle.position.set(-0.16, 0.007, 0); // start position on left of track
+    sliderBase.add(this.sliderHandle);
+
+    // 4. Slider Display Panel
+    this.displayPanelCanvas = document.createElement('canvas');
+    this.displayPanelCanvas.width = 512;
+    this.displayPanelCanvas.height = 128;
+    const dpCtx = this.displayPanelCanvas.getContext('2d')!;
+    dpCtx.fillStyle = '#2b1b14';
+    dpCtx.fillRect(0, 0, 512, 128);
+    dpCtx.strokeStyle = '#c59f51';
+    dpCtx.lineWidth = 6;
+    dpCtx.strokeRect(3, 3, 506, 122);
+    dpCtx.fillStyle = '#ffffff';
+    dpCtx.font = 'bold 36px "Courier Prime", monospace';
+    dpCtx.textAlign = 'center';
+    dpCtx.textBaseline = 'middle';
+    dpCtx.fillText('BRUSH: ⚡1', 256, 64);
+
+    this.displayPanelTex = new THREE.CanvasTexture(this.displayPanelCanvas);
+    this.displayPanelTex.colorSpace = THREE.SRGBColorSpace;
+    this.displayPanelTex.needsUpdate = true;
+    const dpGeo = new THREE.PlaneGeometry(0.20, 0.05);
+    const dpMat = new THREE.MeshBasicMaterial({ map: this.displayPanelTex, fog: false });
+    this.displayPanelMesh = new THREE.Mesh(dpGeo, dpMat);
+    this.displayPanelMesh.rotation.x = -Math.PI / 2;
+    this.displayPanelMesh.position.set(0.10, 0.006, 0.83); // slightly above board Z
+    this.scene.add(this.displayPanelMesh);
+
+    // 5. Coins helper function
+    const createActionCoin = (label: string, color: number, x: number) => {
+      const coinCanvas = document.createElement('canvas');
+      coinCanvas.width = 256;
+      coinCanvas.height = 256;
+      const cCtx = coinCanvas.getContext('2d')!;
+      
+      // Draw background circle
+      cCtx.fillStyle = '#1e1e1e';
+      cCtx.fillRect(0, 0, 256, 256);
+      cCtx.fillStyle = '#' + color.toString(16).padStart(6, '0');
+      cCtx.beginPath();
+      cCtx.arc(128, 128, 110, 0, Math.PI * 2);
+      cCtx.fill();
+      
+      cCtx.strokeStyle = '#ffffff';
+      cCtx.lineWidth = 10;
+      cCtx.stroke();
+      
+      cCtx.fillStyle = '#ffffff';
+      cCtx.font = 'bold 44px "Courier Prime", monospace';
+      cCtx.textAlign = 'center';
+      cCtx.textBaseline = 'middle';
+      cCtx.fillText(label, 128, 128);
+
+      const coinTex = new THREE.CanvasTexture(coinCanvas);
+      coinTex.colorSpace = THREE.SRGBColorSpace;
+      coinTex.needsUpdate = true;
+
+      const coinGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.006, 16);
+      const sideMat = new THREE.MeshPhongMaterial({ color: 0x666666, shininess: 40 });
+      const topMat = new THREE.MeshPhongMaterial({ map: coinTex, shininess: 60 });
+      const bottomMat = new THREE.MeshPhongMaterial({ color: 0x333333, shininess: 20 });
+      
+      const coin = new THREE.Mesh(coinGeo, [sideMat, topMat, bottomMat]);
+      coin.position.set(x, 0.008, 0.90);
+      coin.castShadow = true;
+      coin.receiveShadow = true;
+      return coin;
+    };
+
+    // Instantiate coins
+    this.clearCoin = createActionCoin('CLEAR', 0x333333, -0.32);
+    this.clearCoin.userData = { isClearCoin: true };
+    this.scene.add(this.clearCoin);
+
+    this.rebetCoin = createActionCoin('REBET', 0x43a047, -0.22);
+    this.rebetCoin.userData = { isRebetCoin: true };
+    this.scene.add(this.rebetCoin);
+
+    this.doubleCoin = createActionCoin('DOUBLE', 0xffd54f, -0.12);
+    this.doubleCoin.userData = { isDoubleCoin: true };
+    this.scene.add(this.doubleCoin);
+
+    this.sacrificeCoin = createActionCoin('SACR', 0xe53935, 0.32);
+    this.sacrificeCoin.userData = { isSacrificeCoin: true };
+    this.scene.add(this.sacrificeCoin);
+
+    // 6. Brush Hover Mesh Indicator
+    const brushGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.006, 8);
+    const brushMat = new THREE.MeshBasicMaterial({
+      color: 0xe53935,
+      transparent: true,
+      opacity: 0.6,
+      wireframe: false
+    });
+    this.brushIndicatorMesh = new THREE.Mesh(brushGeo, brushMat);
+    this.brushIndicatorMesh.visible = false;
+    this.scene.add(this.brushIndicatorMesh);
+
+    // Sprite text label above indicator
+    const spriteCanvas = document.createElement('canvas');
+    spriteCanvas.width = 128;
+    spriteCanvas.height = 64;
+    const sCtx = spriteCanvas.getContext('2d')!;
+    sCtx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    sCtx.strokeStyle = '#ffd700';
+    sCtx.lineWidth = 2;
+    sCtx.beginPath();
+    sCtx.roundRect(4, 4, 120, 56, 8);
+    sCtx.fill();
+    sCtx.stroke();
+    sCtx.fillStyle = '#ffffff';
+    sCtx.font = 'bold 24px "Courier Prime", monospace';
+    sCtx.textAlign = 'center';
+    sCtx.textBaseline = 'middle';
+    sCtx.fillText('⚡1', 64, 32);
+
+    const spriteTex = new THREE.CanvasTexture(spriteCanvas);
+    spriteTex.colorSpace = THREE.SRGBColorSpace;
+    const spriteMat = new THREE.SpriteMaterial({ map: spriteTex, transparent: true });
+    this.brushIndicatorTextSprite = new THREE.Sprite(spriteMat);
+    this.brushIndicatorTextSprite.scale.set(0.12, 0.06, 1.0);
+    this.brushIndicatorTextSprite.visible = false;
+    this.scene.add(this.brushIndicatorTextSprite);
 
     // 2e. Opponent Hand Facedown Cards & messy static chips
     const oppCardGeo = new THREE.BoxGeometry(0.22, 0.31, 0.006);
@@ -2238,6 +2408,10 @@ export class RenderManager {
 
     window.addEventListener('resize', handleResize);
     
+    this.container.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+    });
+    
     let startX = 0;
     let startY = 0;
     let pressedSourceDenom = 0;
@@ -2249,6 +2423,11 @@ export class RenderManager {
     let pressedEventChoiceId: string | null = null;
     let pressedPlacedChip: THREE.Object3D | null = null;
     let isPressedOnDrawDeck = false;
+    let isPressedOnSliderHandle = false;
+    let isPressedOnClearCoin = false;
+    let isPressedOnRebetCoin = false;
+    let isPressedOnDoubleCoin = false;
+    let isPressedOnSacrificeCoin = false;
 
     const getMouseCoords = (e: PointerEvent) => {
       const rect = this.renderer.domElement.getBoundingClientRect();
@@ -2404,10 +2583,21 @@ export class RenderManager {
         }
       }
 
-      // 2. Check source chips stack, bell, placed chips, and draw deck hits
+      // 2. Check source chips stack, bell, placed chips, draw deck, slider elements, and coins
       const interactableObjects: THREE.Object3D[] = [];
       this.scene.traverse((obj) => {
-        if (obj.userData && (obj.userData.isSourceStack || obj.userData.isBell || obj.userData.isPlacedChip || obj.userData.isDrawDeck)) {
+        if (obj.userData && (
+          obj.userData.isSourceStack || 
+          obj.userData.isBell || 
+          obj.userData.isPlacedChip || 
+          obj.userData.isDrawDeck ||
+          obj.userData.isSliderHandle ||
+          obj.userData.isSliderTrack ||
+          obj.userData.isClearCoin ||
+          obj.userData.isRebetCoin ||
+          obj.userData.isDoubleCoin ||
+          obj.userData.isSacrificeCoin
+        )) {
           interactableObjects.push(obj);
         }
       });
@@ -2415,7 +2605,74 @@ export class RenderManager {
       const hits = this.raycaster.intersectObjects(interactableObjects);
       if (hits.length > 0) {
         const hitObj = hits[0].object;
-        if (hitObj.userData.isSourceStack) {
+        if (hitObj.userData.isSliderHandle) {
+          isPressedOnSliderHandle = true;
+          pressedSourceDenom = 0;
+          pressedCardId = null;
+          isPressedOnBell = false;
+          isPressedOnPlayedCard = false;
+          pressedPlacedChip = null;
+          isPressedOnDrawDeck = false;
+        } else if (hitObj.userData.isSliderTrack) {
+          // Snap slider handle to click location on track
+          const localPoint = hitObj.worldToLocal(hits[0].point.clone());
+          const newX = Math.max(-0.16, Math.min(0.16, localPoint.x));
+          if (this.sliderHandle) {
+            this.sliderHandle.position.x = newX;
+            const pct = (newX + 0.16) / 0.32;
+            const brushVal = Math.round(1 + pct * 24);
+            this.activeBrush = brushVal;
+            this.updateBrushDisplay();
+            if (this.sound) this.sound.playChipPlace();
+          }
+          isPressedOnSliderHandle = true;
+          pressedSourceDenom = 0;
+          pressedCardId = null;
+          isPressedOnBell = false;
+          isPressedOnPlayedCard = false;
+          pressedPlacedChip = null;
+          isPressedOnDrawDeck = false;
+        } else if (hitObj.userData.isClearCoin) {
+          isPressedOnClearCoin = true;
+          pressedSourceDenom = 0;
+          pressedCardId = null;
+          isPressedOnBell = false;
+          isPressedOnPlayedCard = false;
+          pressedPlacedChip = null;
+          isPressedOnDrawDeck = false;
+          hitObj.position.y = 0.003;
+          if (this.sound) this.sound.playChipPlace();
+        } else if (hitObj.userData.isRebetCoin) {
+          isPressedOnRebetCoin = true;
+          pressedSourceDenom = 0;
+          pressedCardId = null;
+          isPressedOnBell = false;
+          isPressedOnPlayedCard = false;
+          pressedPlacedChip = null;
+          isPressedOnDrawDeck = false;
+          hitObj.position.y = 0.003;
+          if (this.sound) this.sound.playChipPlace();
+        } else if (hitObj.userData.isDoubleCoin) {
+          isPressedOnDoubleCoin = true;
+          pressedSourceDenom = 0;
+          pressedCardId = null;
+          isPressedOnBell = false;
+          isPressedOnPlayedCard = false;
+          pressedPlacedChip = null;
+          isPressedOnDrawDeck = false;
+          hitObj.position.y = 0.003;
+          if (this.sound) this.sound.playChipPlace();
+        } else if (hitObj.userData.isSacrificeCoin) {
+          isPressedOnSacrificeCoin = true;
+          pressedSourceDenom = 0;
+          pressedCardId = null;
+          isPressedOnBell = false;
+          isPressedOnPlayedCard = false;
+          pressedPlacedChip = null;
+          isPressedOnDrawDeck = false;
+          hitObj.position.y = 0.003;
+          if (this.sound) this.sound.playChipPlace();
+        } else if (hitObj.userData.isSourceStack) {
           pressedSourceDenom = hitObj.userData.denom;
           pressedCardId = null;
           isPressedOnBell = false;
@@ -2505,6 +2762,47 @@ export class RenderManager {
           this.draggedDenomMesh.position.set(cellPos.x, 0.02, cellPos.z);
         } else {
           this.activeHoveredCell = null;
+        }
+      }
+
+      if (isPressedOnSliderHandle && this.sliderHandle) {
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersectPoint = new THREE.Vector3();
+        this.raycaster.ray.intersectPlane(this.dragPlane, intersectPoint);
+        const newX = Math.max(-0.16, Math.min(0.16, intersectPoint.x - 0.10));
+        this.sliderHandle.position.x = newX;
+        
+        const pct = (newX + 0.16) / 0.32;
+        const brushVal = Math.round(1 + pct * 24);
+        this.activeBrush = brushVal;
+        this.updateBrushDisplay();
+        return;
+      }
+
+      // Hover overlay check for painting/betting cells
+      if (!this.isDragging && !isPressedOnSliderHandle && this.activeBrush > 0) {
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersectPoint = new THREE.Vector3();
+        this.raycaster.ray.intersectPlane(this.dragPlane, intersectPoint);
+        const cell = this.getFeltCellAtPosition(intersectPoint.x, intersectPoint.z);
+        if (cell && this.engine.battleState) {
+          if (this.brushIndicatorMesh && this.brushIndicatorTextSprite) {
+            const cellPos = this.getBoardCellPosition(cell.type, cell.numberValue);
+            this.brushIndicatorMesh.position.set(cellPos.x, 0.008, cellPos.z);
+            this.brushIndicatorMesh.visible = true;
+            this.brushIndicatorTextSprite.position.set(cellPos.x, 0.08, cellPos.z);
+            this.brushIndicatorTextSprite.visible = true;
+          }
+        } else {
+          if (this.brushIndicatorMesh && this.brushIndicatorTextSprite) {
+            this.brushIndicatorMesh.visible = false;
+            this.brushIndicatorTextSprite.visible = false;
+          }
+        }
+      } else {
+        if (this.brushIndicatorMesh && this.brushIndicatorTextSprite) {
+          this.brushIndicatorMesh.visible = false;
+          this.brushIndicatorTextSprite.visible = false;
         }
       }
     });
@@ -2895,7 +3193,7 @@ export class RenderManager {
     });
   }
 
-  playOpponentActionAnimation(intent: { type: string; value: number; description: string }, betType: string, numberValue?: number, cardToPlay?: Card) {
+  playOpponentActionAnimation(intent: { type: string; value: number; description: string }, bets: Bet[], cardToPlay?: Card) {
     // 1. Create intent card mesh
     const scale = 2;
     const canvas = document.createElement('canvas');
@@ -3017,27 +3315,40 @@ export class RenderManager {
     this.oppAnimChips = [];
 
     const chipGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.006, 8);
-    let chipMat = this.chipMaterials.red;
-    if (betType === 'black') chipMat = this.chipMaterials.black;
-    else if (betType === 'green') chipMat = this.chipMaterials.green;
-    else if (betType === 'number') chipMat = this.chipMaterials.number;
-    else if (betType === 'even') chipMat = this.chipMaterials.blue;
-    else if (betType === 'gold') chipMat = this.chipMaterials.gold;
-    else if (betType === 'purple') chipMat = this.chipMaterials.purple;
-    else if (betType === 'cyan') chipMat = this.chipMaterials.cyan;
-    else if (betType === 'crimson') chipMat = this.chipMaterials.crimson;
 
-    const count = Math.max(1, Math.min(5, intent.value));
-    for (let i = 0; i < count; i++) {
-      const chip = new THREE.Mesh(chipGeo, chipMat);
-      chip.position.set(0.35, 0.005 + i * 0.007, -2.5);
-      chip.castShadow = true;
-      chip.receiveShadow = true;
-      this.scene.add(chip);
-      this.oppAnimChips.push(chip);
-    }
+    bets.forEach((bet, betIdx) => {
+      let chipMat = this.chipMaterials.red;
+      if (bet.type === 'black') chipMat = this.chipMaterials.black;
+      else if (bet.type === 'green') chipMat = this.chipMaterials.green;
+      else if (bet.type === 'number') chipMat = this.chipMaterials.number;
+      else if (bet.type === 'even') chipMat = this.chipMaterials.blue;
+      else if (bet.type === 'gold') chipMat = this.chipMaterials.gold;
+      else if (bet.type === 'purple') chipMat = this.chipMaterials.purple;
+      else if (bet.type === 'cyan') chipMat = this.chipMaterials.cyan;
+      else if (bet.type === 'crimson') chipMat = this.chipMaterials.crimson;
 
-    this.oppAnimChipsEnd = this.getBoardCellPosition(betType, numberValue);
+      const count = Math.max(1, Math.min(5, bet.amount));
+      const endPos = this.getBoardCellPosition(bet.type, bet.numberValue);
+      
+      // Stagger start X slightly on Z = -2.5 (opponent side)
+      const startX = -0.25 + (betIdx * 0.25);
+      const startZ = -2.5;
+
+      for (let i = 0; i < count; i++) {
+        const chip = new THREE.Mesh(chipGeo, chipMat);
+        chip.position.set(startX, 0.005 + i * 0.007, startZ);
+        chip.castShadow = true;
+        chip.receiveShadow = true;
+        
+        chip.userData = {
+          startPosition: new THREE.Vector3(startX, 0.005 + i * 0.007, startZ),
+          targetPosition: new THREE.Vector3(endPos.x, endPos.y + i * 0.007, endPos.z)
+        };
+
+        this.scene.add(chip);
+        this.oppAnimChips.push(chip);
+      }
+    });
 
     this.oppAnimTime = 0;
     this.oppAnimType = 'card_play';
@@ -3971,18 +4282,14 @@ export class RenderManager {
           const t = Math.min(1.0, (progress - chipStartProgress) / (chipEndProgress - chipStartProgress));
           const easeT = 1.0 - Math.pow(1.0 - t, 3);
           
-          this.oppAnimChips.forEach((chip, i) => {
-            const startX = 0.35;
-            const startY = 0.005 + i * 0.007;
-            const startZ = -2.5;
-            
-            const targetX = this.oppAnimChipsEnd.x;
-            const targetY = this.oppAnimChipsEnd.y + i * 0.007;
-            const targetZ = this.oppAnimChipsEnd.z;
-            
-            chip.position.x = startX + (targetX - startX) * easeT;
-            chip.position.y = startY + (targetY - startY) * easeT + Math.sin(t * Math.PI) * 0.15;
-            chip.position.z = startZ + (targetZ - startZ) * easeT;
+          this.oppAnimChips.forEach((chip) => {
+            const startPos = chip.userData.startPosition;
+            const targetPos = chip.userData.targetPosition;
+            if (startPos && targetPos) {
+              chip.position.x = startPos.x + (targetPos.x - startPos.x) * easeT;
+              chip.position.y = startPos.y + (targetPos.y - startPos.y) * easeT + Math.sin(t * Math.PI) * 0.15;
+              chip.position.z = startPos.z + (targetPos.z - startPos.z) * easeT;
+            }
           });
         }
       }
@@ -4073,6 +4380,79 @@ export class RenderManager {
       this.renderer.autoClear = true;
     }
   };
+
+  private updateBrushIndicatorText(val: number) {
+    if (!this.brushIndicatorTextSprite) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, 128, 64);
+    
+    // Draw background bubble
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(4, 4, 120, 56, 8);
+    ctx.fill();
+    ctx.stroke();
+    
+    // Draw text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px "Courier Prime", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`⚡${val}`, 64, 32);
+    
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    
+    const oldTex = this.brushIndicatorTextSprite.material.map;
+    this.brushIndicatorTextSprite.material.map = tex;
+    if (oldTex) oldTex.dispose();
+  }
+
+  updateBrushDisplay() {
+    if (!this.displayPanelCanvas || !this.displayPanelTex) return;
+    const canvas = this.displayPanelCanvas;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#2b1b14';
+    ctx.fillRect(0, 0, 512, 128);
+    ctx.strokeStyle = '#c59f51';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(3, 3, 506, 122);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 36px "Courier Prime", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`BRUSH: ⚡${this.activeBrush}`, 256, 64);
+    this.displayPanelTex.needsUpdate = true;
+
+    // Update brush hover mesh color dynamically
+    if (this.brushIndicatorMesh) {
+      let color = 0xe53935; // Red for 1s
+      if (this.activeBrush >= 10) color = 0xffd54f; // Gold for 10s
+      else if (this.activeBrush >= 5) color = 0x43a047; // Green for 5s
+      (this.brushIndicatorMesh.material as THREE.MeshBasicMaterial).color.setHex(color);
+
+      // Adjust height representation of brushIndicatorMesh
+      const heightMultiplier = Math.min(6, Math.ceil(this.activeBrush / 2));
+      this.brushIndicatorMesh.scale.y = heightMultiplier;
+    }
+
+    // Update the floating indicator text sprite
+    this.updateBrushIndicatorText(this.activeBrush);
+    
+    // Sync to UI custom-bet-input if available
+    if (this.ui) {
+      const customInput = this.ui.root.querySelector('#custom-bet-input') as HTMLInputElement;
+      if (customInput) {
+        customInput.value = this.activeBrush.toString();
+      }
+      this.ui.currentBetAmount = this.activeBrush;
+    }
+  }
 
   private syncChips() {
     // 1. Clean up old chip meshes
